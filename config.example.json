@@ -1,0 +1,20 @@
+{
+  "tenantId": "YOUR_BC_TENANT_ID",
+  "clientId": "YOUR_BC_CLIENT_ID",
+  "clientSecret": "YOUR_BC_CLIENT_SECRET",
+  "environment": "YOUR_BC_ENVIRONMENT",
+  "companyName": "YOUR_BC_COMPANY_NAME",
+  
+  "ai_provider": "ollama",
+  
+  "azure": {
+    "endpoint": "https://YOUR_RESOURCE_NAME.openai.azure.com/",
+    "apiKey": "YOUR_AZURE_API_KEY",
+    "deploymentName": "gpt-4o"
+  },
+  
+  "openrouter": {
+    "apiKey": "YOUR_OPENROUTER_API_KEY",
+    "model": "meta-llama/llama-3-8b-instruct"
+  }
+}

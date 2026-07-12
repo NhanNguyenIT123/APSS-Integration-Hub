@@ -1,0 +1,195 @@
+page 70303 "APSS RFQ Line Preview"
+{
+    PageType = List;
+    SourceTable = "APSS RFQ Line Buffer";
+    Caption = 'APSS RFQ Line Preview';
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Group)
+            {
+                field("Line No."; Rec."Line No.")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Material Code"; Rec."Material Code")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        ShowFullValue('Material Code', Rec."Material Code");
+                    end;
+                }
+                field("Material Description"; Rec."Material Description")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        ShowFullValue('Material Description', Rec."Material Description");
+                    end;
+                }
+                field("Part Number"; Rec."Part Number")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        ShowFullValue('Part Number', Rec."Part Number");
+                    end;
+                }
+                field(Manufacturer; Rec.Manufacturer)
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        ShowFullValue('Manufacturer', Rec.Manufacturer);
+                    end;
+                }
+                field(UOM; Rec.UOM)
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field(Quantity; Rec.Quantity)
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Match Status"; Rec."Match Status")
+                {
+                    ApplicationArea = All;
+                    StyleExpr = StyleTxt;
+                }
+                field("Matched Item No."; Rec."Matched Item No.")
+                {
+                    ApplicationArea = All;
+                    
+                    trigger OnValidate()
+                    begin
+                        if Rec."Matched Item No." <> '' then begin
+                            Rec."Match Status" := Rec."Match Status"::"Auto-Link";
+                            Rec."Match Reason" := 'Manually selected by user';
+                        end else begin
+                            Rec."Match Status" := Rec."Match Status"::"Create Blank";
+                            Rec."Match Reason" := '';
+                        end;
+                        Rec.CalcFields("BC Item Description");
+                    end;
+                }
+                field("BC Item Description"; Rec."BC Item Description")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        Rec.CalcFields("BC Item Description");
+                        ShowFullValue('BC Item Description', Rec."BC Item Description");
+                    end;
+                }
+
+                field("Match Score %"; Rec."Match Score")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Match Reason"; Rec."Match Reason")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    DrillDown = true;
+
+                    trigger OnDrillDown()
+                    begin
+                        if Rec."Match Reason" <> '' then
+                            Message(Rec."Match Reason");
+                    end;
+                }
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(CreateQuote)
+            {
+                ApplicationArea = All;
+                Caption = 'Confirm & Create Quote';
+                ToolTip = 'Processes the current RFQ lines buffer: creates Item Cards for Create Blank items and generates a Sales Quote linked to the Opportunity.';
+                Image = CreateDocument;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+
+                trigger OnAction()
+                var
+                    SyncCU: Codeunit "APSS Middleware Sync";
+                begin
+                    SyncCU.CreateQuoteFromRfqBuffer(Rec."RFQ No.");
+                    CurrPage.Close();
+                end;
+            }
+            action(RefreshLines)
+            {
+                ApplicationArea = All;
+                Caption = 'Refresh Lines';
+                ToolTip = 'Deletes local cached lines and pulls the latest data from the middleware.';
+                Image = Refresh;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+
+                trigger OnAction()
+                var
+                    SyncCU: Codeunit "APSS Middleware Sync";
+                begin
+                    SyncCU.FetchAndPreviewRfqLines(Rec."RFQ No.");
+                    CurrPage.Update(false);
+                end;
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Rec.CalcFields("BC Item Description");
+        
+        case Rec."Match Status" of
+            Rec."Match Status"::"Auto-Link":
+                StyleTxt := 'Favorable';
+            Rec."Match Status"::Review:
+                StyleTxt := 'Ambiguous';
+            else
+                StyleTxt := 'Attention';
+        end;
+    end;
+
+    local procedure ShowFullValue(FieldCaption: Text; FieldValue: Text)
+    begin
+        if FieldValue = '' then
+            Message('%1 is blank.', FieldCaption)
+        else
+            Message('%1:\\%2', FieldCaption, FieldValue);
+    end;
+
+    var
+        StyleTxt: Text;
+}

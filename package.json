@@ -1,0 +1,25 @@
+{
+  "name": "apss-portal-integration-hub",
+  "version": "1.0.0",
+  "description": "APSS portal-to-Business Central integration middleware for PTTEP and POSCO flows.",
+  "main": "shared/server.js",
+  "scripts": {
+    "start": "node shared/server.js",
+    "dev": "node shared/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1067.0",
+    "adm-zip": "^0.5.17",
+    "mammoth": "^1.12.0",
+    "nodemailer": "^9.0.1",
+    "openai": "^6.45.0",
+    "pdf-parse": "^2.4.5",
+    "playwright": "^1.60.0",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
+  }
+}

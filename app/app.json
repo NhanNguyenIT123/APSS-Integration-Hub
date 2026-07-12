@@ -1,0 +1,32 @@
+{
+  "id": "32a76f2d-cf4f-4d2c-8a21-995b281f629c",
+  "name": "app",
+  "publisher": "Nick_Nguyen",
+  "version": "1.0.0.104",
+  "brief": "",
+  "description": "",
+  "privacyStatement": "",
+  "EULA": "",
+  "help": "",
+  "url": "",
+  "logo": "",
+  "dependencies": [],
+  "screenshots": [],
+  "platform": "1.0.0.0",
+  "application": "22.0.0.0",
+  "runtime": "11.0",
+  "idRanges": [
+    {
+      "from": 70300,
+      "to": 70899
+    }
+  ],
+  "features": [
+    "NoImplicitWith"
+  ],
+  "resourceExposurePolicy": {
+    "allowDebugging": true,
+    "allowDownloadingSource": false,
+    "includeSourceInSymbolFile": false
+  }
+}
