@@ -20,18 +20,21 @@ codeunit 70303 "APSS Middleware Sync"
         RfqToken: JsonToken;
         RfqObj: JsonObject;
         RfqBuffer: Record "APSS RFQ Buffer";
+        TempRfqBuffer: Record "APSS RFQ Buffer" temporary;
         Opportunity: Record Opportunity;
         SalesHeader: Record "Sales Header";
         i: Integer;
         Url: Text;
     begin
-        if not Setup.Get() then
-            Error('APSS Integration Setup is missing. Please configure it first.');
+        Setup.GetSetupRecord();
         
         if Setup."Middleware Base URL" = '' then
             Error('Middleware Base URL is not configured in APSS Integration Setup.');
         
         Url := Setup."Middleware Base URL" + '/api/middleware/list';
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
         
         if not Client.Get(Url, Response) then
             Error('Failed to connect to APSS Integration Hub at %1', Url);
@@ -49,10 +52,6 @@ codeunit 70303 "APSS Middleware Sync"
             exit; // No RFQs
             
         JArray := RfqArrayToken.AsArray();
-        
-        // Clear buffer first
-        RfqBuffer.Reset();
-        RfqBuffer.DeleteAll();
         
         for i := 0 to JArray.Count() - 1 do begin
             JArray.Get(i, RfqToken);
@@ -72,10 +71,25 @@ codeunit 70303 "APSS Middleware Sync"
             SalesHeader.SetRange("Document Type", SalesHeader."Document Type"::Quote);
             SalesHeader.SetRange("External Document No.", RfqBuffer."RFQ No.");
             if SalesHeader.FindFirst() then
-                RfqBuffer."Sales Quote Created" := SalesHeader."No.";
+                RfqBuffer."Sales Quote Created" := SalesHeader."No."
+            else
+                RfqBuffer."Sales Quote Created" := '';
 
             if not RfqBuffer.Insert() then
                 RfqBuffer.Modify();
+                
+            TempRfqBuffer.Init();
+            TempRfqBuffer."RFQ No." := RfqBuffer."RFQ No.";
+            TempRfqBuffer.Insert();
+        end;
+
+        // Clean up any obsolete/deleted RFQs from the database without clearing everything
+        RfqBuffer.Reset();
+        if RfqBuffer.FindSet() then begin
+            repeat
+                if not TempRfqBuffer.Get(RfqBuffer."RFQ No.") then
+                    RfqBuffer.Delete();
+            until RfqBuffer.Next() = 0;
         end;
     end;
 
@@ -105,6 +119,7 @@ codeunit 70303 "APSS Middleware Sync"
         ContBusRel: Record "Contact Business Relation";
         MarketingSetup: Record "Marketing Setup";
         OppEntry: Record "Opportunity Entry";
+        ShipToAddr: Record "Ship-to Address";
         
         // Variables
         MatDesc: Text[100];
@@ -141,13 +156,15 @@ codeunit 70303 "APSS Middleware Sync"
         AttInStr: InStream;
         DocAttachment: Record "Document Attachment";
     begin
-        if not Setup.Get() then
-            Error('APSS Integration Setup is missing. Please configure it first.');
+        Setup.GetSetupRecord();
             
         if Setup."Default Customer No." = '' then
             Error('Please configure a Default Customer No. in APSS Integration Setup.');
             
         Url := Setup."Middleware Base URL" + '/api/middleware/pull?rfq_no=' + RfqNo;
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
         
         if not Client.Get(Url, Response) then
             Error('Failed to connect to Middleware at %1', Url);
@@ -244,6 +261,17 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.Validate("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.Insert(true); // Auto-generates Document No.
         SalesHeader.Validate("Sell-to Customer No.", CustomerNoToUse);
+
+        // Clear Ship-to Code if it no longer exists in Ship-to Address table
+        // (prevents BC validation crash when customer's default Ship-to Address was deleted)
+        if SalesHeader."Ship-to Code" <> '' then begin
+            ShipToAddr.Reset();
+            ShipToAddr.SetRange("Customer No.", CustomerNoToUse);
+            ShipToAddr.SetRange(Code, SalesHeader."Ship-to Code");
+            if not ShipToAddr.FindFirst() then
+                SalesHeader."Ship-to Code" := '';
+        end;
+
         SalesHeader.Validate("Salesperson Code", ''); // Leave blank per feedback
         SalesHeader."Opportunity No." := Opportunity."No."; // Assign directly to bypass standard lookup error before transaction end
         SalesHeader.Validate("External Document No.", CopyStr(RfqNo, 1, MaxStrLen(SalesHeader."External Document No.")));
@@ -296,8 +324,7 @@ codeunit 70303 "APSS Middleware Sync"
             if not Evaluate(LeadTimeWeeks, LeadTimeText) then
                 LeadTimeWeeks := 0;
             
-            if not Evaluate(QtyDec, QtyText) then
-                QtyDec := 1;
+            QtyDec := ParseQtyTextToDecimal(QtyText);
             if QtyDec <= 0 then
                 QtyDec := 1;
                   
@@ -380,6 +407,9 @@ codeunit 70303 "APSS Middleware Sync"
                     
                     if (AttName <> '') and (AttUrl <> '') then begin
                         Clear(AttClient);
+                        AttClient.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+                        if Setup."API Key" <> '' then
+                            AttClient.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
                         if AttClient.Get(AttUrl, AttResponse) then begin
                             if AttResponse.IsSuccessStatusCode() then begin
                                 AttResponse.Content().ReadAs(AttInStr);
@@ -2649,10 +2679,12 @@ codeunit 70303 "APSS Middleware Sync"
         CandidateItem: Record Item;
         HasExactPartMatch: Boolean;
     begin
-        if not Setup.Get() then
-            Error('APSS Integration Setup is missing. Please configure it first.');
+        Setup.GetSetupRecord();
             
         Url := Setup."Middleware Base URL" + '/api/middleware/pull?rfq_no=' + RfqNo;
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
         
         if not Client.Get(Url, Response) then
             Error('Failed to connect to Middleware at %1', Url);
@@ -2690,7 +2722,7 @@ codeunit 70303 "APSS Middleware Sync"
             RfqLineBuffer.Manufacturer := CopyStr(GetJsonValueAsText(ItemObj, 'manufacturer'), 1, 100);
             RfqLineBuffer.UOM := CleanUomCode(GetJsonValueAsText(ItemObj, 'uom'));
             
-            Evaluate(RfqLineBuffer.Quantity, GetJsonValueAsText(ItemObj, 'qty'));
+            RfqLineBuffer.Quantity := ParseQtyTextToDecimal(GetJsonValueAsText(ItemObj, 'qty'));
             if RfqLineBuffer.Quantity <= 0 then
                 RfqLineBuffer.Quantity := 1;
                 
@@ -2822,11 +2854,11 @@ codeunit 70303 "APSS Middleware Sync"
         AttResponse: HttpResponseMessage;
         AttInStr: InStream;
         DocAttachment: Record "Document Attachment";
+        ShipToAddr2: Record "Ship-to Address";
         i: Integer;
         Url: Text;
     begin
-        if not Setup.Get() then
-            Error('APSS Integration Setup is missing.');
+        Setup.GetSetupRecord();
             
         // Check if Sales Quote already exists
         SalesHeader.Reset();
@@ -2900,6 +2932,16 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.Validate("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.Insert(true);
         SalesHeader.Validate("Sell-to Customer No.", CustomerNoToUse);
+
+        // Clear Ship-to Code if it no longer exists in Ship-to Address table
+        if SalesHeader."Ship-to Code" <> '' then begin
+            ShipToAddr2.Reset();
+            ShipToAddr2.SetRange("Customer No.", CustomerNoToUse);
+            ShipToAddr2.SetRange(Code, SalesHeader."Ship-to Code");
+            if not ShipToAddr2.FindFirst() then
+                SalesHeader."Ship-to Code" := '';
+        end;
+
         SalesHeader.Validate("Salesperson Code", ''); // Leave blank per feedback
         SalesHeader."Opportunity No." := Opportunity."No.";
         SalesHeader.Validate("External Document No.", CopyStr(RfqNo, 1, MaxStrLen(SalesHeader."External Document No.")));
@@ -2994,6 +3036,10 @@ codeunit 70303 "APSS Middleware Sync"
 
         // ─── Attach RFQ Documents (Header Level) ─────────────────
         Url := Setup."Middleware Base URL" + '/api/middleware/pull?rfq_no=' + RfqNo;
+        Clear(Client);
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
         if Client.Get(Url, Response) then begin
             if Response.IsSuccessStatusCode() then begin
                 Response.Content().ReadAs(ResponseText);
@@ -3011,6 +3057,9 @@ codeunit 70303 "APSS Middleware Sync"
                                 
                                 if (AttName <> '') and (AttUrl <> '') then begin
                                     Clear(AttClient);
+                                    AttClient.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', '1');
+                                    if Setup."API Key" <> '' then
+                                        AttClient.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
                                     if AttClient.Get(AttUrl, AttResponse) then begin
                                         if AttResponse.IsSuccessStatusCode() then begin
                                             AttResponse.Content().ReadAs(AttInStr);
@@ -3379,6 +3428,25 @@ codeunit 70303 "APSS Middleware Sync"
         exit(LowerCase(DelChr(DelChr(DelChr(FieldName, '=', ' '), '=', '.'), '=', '_')));
     end;
 
+    local procedure EnsureDimensionValueExists(DimensionCode: Code[20]; ValueCode: Code[20])
+    var
+        Dimension: Record Dimension;
+        DimValue: Record "Dimension Value";
+    begin
+        if (DimensionCode = '') or (ValueCode = '') then
+            exit;
+        if not Dimension.Get(DimensionCode) then
+            exit;
+        if not DimValue.Get(DimensionCode, ValueCode) then begin
+            DimValue.Init();
+            DimValue."Dimension Code" := DimensionCode;
+            DimValue.Code := ValueCode;
+            DimValue.Name := ValueCode;
+            DimValue."Dimension Value Type" := DimValue."Dimension Value Type"::Standard;
+            DimValue.Insert(true);
+        end;
+    end;
+
     local procedure CopyDefaultDimensionsFromItemCategory(var Item: Record Item; ItemCategoryCode: Code[20])
     var
         DefaultDimSource: Record "Default Dimension";
@@ -3415,6 +3483,7 @@ codeunit 70303 "APSS Middleware Sync"
 
         // 1. BRAND Dimension
         if (BrandValue <> '') and (BrandValue <> 'APSS') then begin
+            EnsureDimensionValueExists(DimensionCodeBrand, CopyStr(BrandValue, 1, 20));
             if not DefaultDimTarget.Get(Database::Item, Item."No.", DimensionCodeBrand) then begin
                 DefaultDimTarget.Init();
                 DefaultDimTarget."Table ID" := Database::Item;
@@ -3428,6 +3497,7 @@ codeunit 70303 "APSS Middleware Sync"
 
         // 2. MAIN CATEGORY Dimension
         if ItemCategoryCode <> '' then begin
+            EnsureDimensionValueExists(DimensionCodeMainCat, ItemCategoryCode);
             if not DefaultDimTarget.Get(Database::Item, Item."No.", DimensionCodeMainCat) then begin
                 DefaultDimTarget.Init();
                 DefaultDimTarget."Table ID" := Database::Item;
@@ -3438,5 +3508,344 @@ codeunit 70303 "APSS Middleware Sync"
                 DefaultDimTarget.Insert(true);
             end;
         end;
+    end;
+
+    procedure TriggerPoscoScrape(RfqNo: Text)
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        Content: HttpContent;
+    begin
+        Setup.GetSetupRecord();
+        Setup.TestField("Middleware Base URL");
+
+        Url := Setup."Middleware Base URL" + '/api/posco/scrape';
+        if RfqNo <> '' then
+            Url := Url + '?rfq_no=' + RfqNo;
+
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+
+        if not Client.Post(Url, Content, Response) then
+            Error('Failed to connect to Middleware at %1', Url);
+
+        if not Response.IsSuccessStatusCode() then begin
+            Response.Content().ReadAs(ContentText);
+            Error('Middleware returned error: %1', ContentText);
+        end;
+
+        Message('POSCO scraping started on Middleware server.\You can close this page. Click "Check Scrape Status" to monitor progress and fetch the results when done.');
+    end;
+
+    procedure CheckPoscoScrapeStatus()
+    var
+        IsRunning: Boolean;
+        ProgressValue: Integer;
+        StatusText: Text;
+    begin
+        if not GetScrapeStatusFromServer(IsRunning, ProgressValue, StatusText) then begin
+            Message('Cannot connect to Middleware or retrieve status. Please check setup.');
+            exit;
+        end;
+
+        if StatusText = 'WAITING_FOR_OTP' then begin
+            Message('POSCO portal is requesting an OTP code.\The automated OTP listener (Power Automate) is currently processing it.\Please check status again in a minute.');
+            exit;
+        end;
+
+        if IsRunning then begin
+            Message('POSCO scraping is currently running.\Progress: %1%\Status: %2\You can check status again later.', Format(ProgressValue), StatusText);
+        end else begin
+            // Scraping is done - auto refresh the list
+            FetchRfqList();
+            if StatusText <> '' then
+                Message('POSCO scraping completed!\Last status: %1\RFQ list has been refreshed.', StatusText)
+            else
+                Message('POSCO scraping is not currently running.\RFQ list has been refreshed.');
+        end;
+    end;
+
+
+    local procedure GetScrapeStatusFromServer(var IsRunning: Boolean; var ProgressValue: Integer; var StatusText: Text): Boolean
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        JsonObj: JsonObject;
+        Token: JsonToken;
+    begin
+        Setup.GetSetupRecord();
+        if Setup."Middleware Base URL" = '' then
+            exit(false);
+
+        Url := Setup."Middleware Base URL" + '/api/posco/scrape/status';
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+
+        if not Client.Get(Url, Response) then
+            exit(false);
+
+        if not Response.IsSuccessStatusCode() then
+            exit(false);
+
+        Response.Content().ReadAs(ContentText);
+        if not JsonObj.ReadFrom(ContentText) then
+            exit(false);
+
+        IsRunning := false;
+        ProgressValue := 0;
+        StatusText := '';
+
+        if JsonObj.Get('running', Token) then
+            IsRunning := Token.AsValue().AsBoolean();
+        if JsonObj.Get('progress', Token) then
+            ProgressValue := Token.AsValue().AsInteger();
+        if JsonObj.Get('status_text', Token) then
+            StatusText := Token.AsValue().AsText();
+
+        exit(true);
+    end;
+
+    local procedure PromptForPoscoOtp()
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        OtpCode: Text;
+        Payload: JsonObject;
+        PayloadText: Text;
+        Content: HttpContent;
+        ContentHeaders: HttpHeaders;
+        OtpPage: Page "APSS POSCO OTP Input";
+    begin
+        Setup.GetSetupRecord();
+        
+        if OtpPage.RunModal() = Action::OK then begin
+            OtpCode := OtpPage.GetOtpCode();
+            if OtpCode <> '' then begin
+                Url := Setup."Middleware Base URL" + '/api/posco/submit-otp';
+                
+                Payload.Add('otp', OtpCode);
+                Payload.WriteTo(PayloadText);
+                Content.WriteFrom(PayloadText);
+                Content.GetHeaders(ContentHeaders);
+                ContentHeaders.Clear();
+                ContentHeaders.Add('Content-Type', 'application/json');
+                
+                Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+                if Setup."API Key" <> '' then
+                    Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+                    
+                if Client.Post(Url, Content, Response) then begin
+                    if not Response.IsSuccessStatusCode() then begin
+                        Response.Content().ReadAs(ContentText);
+                        Message('Failed to submit OTP: %1', ContentText);
+                    end;
+                end;
+            end;
+        end;
+    end;
+
+    procedure CancelPoscoScrape()
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        Content: HttpContent;
+    begin
+        Setup.GetSetupRecord();
+        Setup.TestField("Middleware Base URL");
+        
+        Url := Setup."Middleware Base URL" + '/api/posco/cancel';
+        
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+            
+        if Client.Post(Url, Content, Response) then begin
+            if Response.IsSuccessStatusCode() then
+                Message('POSCO scraping successfully cancelled.')
+            else begin
+                Response.Content().ReadAs(ContentText);
+                Error('Failed to cancel POSCO scraping: %1', ContentText);
+            end;
+        end;
+    end;
+
+    procedure UploadPttepExcel(FileName: Text; FileStream: InStream)
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        Content: HttpContent;
+    begin
+        Setup.GetSetupRecord();
+        Setup.TestField("Middleware Base URL");
+        
+        Url := Setup."Middleware Base URL" + '/api/upload?live=true';
+        
+        Content.WriteFrom(FileStream);
+        
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+            
+        if not Client.Post(Url, Content, Response) then
+            Error('Failed to connect to Middleware at %1', Url);
+            
+        if not Response.IsSuccessStatusCode() then begin
+            Response.Content().ReadAs(ContentText);
+            Error('Middleware returned error: %1', ContentText);
+        end;
+        
+        Message('PTTEP Excel file uploaded successfully and import started in background.\Click "Check Import Status" to monitor progress.');
+    end;
+
+    procedure CheckPttepImportStatus()
+    var
+        IsRunning: Boolean;
+        ProgressValue: Integer;
+        StatusText: Text;
+    begin
+        if not GetPttepImportStatusFromServer(IsRunning, ProgressValue, StatusText) then begin
+            Message('Cannot connect to Middleware or retrieve import status. Please check setup.');
+            exit;
+        end;
+
+        if IsRunning then begin
+            Message('PTTEP import process is currently running.\Progress: %1%\Status: %2\You can check status again later.', Format(ProgressValue), StatusText);
+        end else begin
+            // Import is done - auto refresh the list
+            FetchRfqList();
+            if StatusText <> '' then
+                Message('PTTEP import completed!\Last status: %1\RFQ list has been refreshed.', StatusText)
+            else
+                Message('PTTEP import is not currently running.\RFQ list has been refreshed.');
+        end;
+    end;
+
+    local procedure GetPttepImportStatusFromServer(var IsRunning: Boolean; var ProgressValue: Integer; var StatusText: Text): Boolean
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        JsonObj: JsonObject;
+        ImportToken: JsonToken;
+        Token: JsonToken;
+    begin
+        Setup.GetSetupRecord();
+        if Setup."Middleware Base URL" = '' then
+            exit(false);
+
+        Url := Setup."Middleware Base URL" + '/api/pttep/import/status';
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+
+        if not Client.Get(Url, Response) then
+            exit(false);
+
+        if not Response.IsSuccessStatusCode() then
+            exit(false);
+
+        Response.Content().ReadAs(ContentText);
+        if JsonObj.ReadFrom(ContentText) then begin
+            if JsonObj.Get('import', ImportToken) then begin
+                if ImportToken.AsObject().Get('running', Token) then
+                    IsRunning := Token.AsValue().AsBoolean();
+                    
+                if ImportToken.AsObject().Get('percent', Token) then
+                    ProgressValue := Token.AsValue().AsInteger();
+                    
+                if ImportToken.AsObject().Get('stage', Token) then
+                    StatusText := Token.AsValue().AsText();
+                    
+                exit(true);
+            end;
+        end;
+        exit(false);
+    end;
+
+
+    procedure CancelPttepImport()
+    var
+        Setup: Record "APSS Integration Setup";
+        Client: HttpClient;
+        Response: HttpResponseMessage;
+        Url: Text;
+        ContentText: Text;
+        Content: HttpContent;
+    begin
+        Setup.GetSetupRecord();
+        Setup.TestField("Middleware Base URL");
+        
+        Url := Setup."Middleware Base URL" + '/api/pttep/cancel';
+        
+        Client.DefaultRequestHeaders().Add('ngrok-skip-browser-warning', 'true');
+        if Setup."API Key" <> '' then
+            Client.DefaultRequestHeaders().Add('x-api-key', Setup."API Key");
+            
+        if Client.Post(Url, Content, Response) then begin
+            if Response.IsSuccessStatusCode() then
+                Message('PTTEP import process successfully cancelled.')
+            else begin
+                Response.Content().ReadAs(ContentText);
+                Error('Failed to cancel PTTEP import: %1', ContentText);
+            end;
+        end;
+    end;
+
+    local procedure ParseQtyTextToDecimal(QtyText: Text): Decimal
+    var
+        CleanedText: Text;
+        i: Integer;
+        C: Char;
+        HasDecimalPoint: Boolean;
+        ResultDec: Decimal;
+    begin
+        CleanedText := '';
+        QtyText := DelChr(QtyText, '=', ','); // Strip commas
+        QtyText := DelChr(QtyText, '<>', ' '); // Trim spaces
+        
+        HasDecimalPoint := false;
+        for i := 1 to StrLen(QtyText) do begin
+            C := QtyText[i];
+            if (C >= '0') and (C <= '9') then
+                CleanedText += Format(C)
+            else if (C = '.') and (not HasDecimalPoint) then begin
+                CleanedText += Format(C);
+                HasDecimalPoint := true;
+            end else begin
+                if CleanedText <> '' then
+                    break;
+            end;
+        end;
+
+        if CleanedText = '' then
+            exit(0);
+
+        if StrLen(CleanedText) > 0 then
+            if CleanedText[StrLen(CleanedText)] = '.' then
+                CleanedText := CopyStr(CleanedText, 1, StrLen(CleanedText) - 1);
+
+        if Evaluate(ResultDec, CleanedText) then
+            exit(ResultDec);
+
+        exit(0);
     end;
 }
