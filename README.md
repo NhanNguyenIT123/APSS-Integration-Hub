@@ -38,6 +38,8 @@ The current demo flow is local-first:
 3. If BC must call the local middleware, expose it through a tunnel
 4. Keep live credentials, sessions, browser profiles, and raw customer exports out of version control
 
+For a VPS or other public deployment, set `PUBLIC_BASE_URL` (or `publicBaseUrl` in `config.json`) to its HTTPS URL. This lets Business Central download RFQ attachments from the same public middleware endpoint.
+
 For local BC simulation fallback:
 
 - `sample-data/bc_existing_items.example.json` is the safe public demo sample kept in Git

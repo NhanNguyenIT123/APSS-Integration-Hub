@@ -1,0 +1,738 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "1.0.0",
+    "title": "APSS Integration Hub Middleware API",
+    "description": "API endpoints for APSS Integration Hub, exposing POSCO scraping, Email ingestion webhook, and Excel file upload processing."
+  },
+  "host": "unknotted-junior-panama.ngrok-free.dev",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/api/webhook/email": {
+      "post": {
+        "summary": "Ingest Email RFQ parsed by Kathy's script",
+        "operationId": "ingestEmailRfq",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/EmailRfqPayload"
+            }
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/posco/scrape": {
+      "post": {
+        "summary": "Trigger POSCO Scraper",
+        "operationId": "triggerPoscoScrape",
+        "parameters": [
+          {
+            "name": "mock",
+            "in": "query",
+            "description": "Run in simulation mock mode",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "rfq_no",
+            "in": "query",
+            "description": "Target RFQ Number to scrape (Optional)",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/posco/scrape/status": {
+      "get": {
+        "summary": "Check POSCO scraper status and progress",
+        "operationId": "getPoscoScrapeStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "running": {
+                  "type": "boolean"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "progress": {
+                  "type": "integer"
+                },
+                "status_text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ]
+      }
+    },
+    "/api/heartbeat": {
+      "post": {
+        "summary": "Send heartbeat to track active clients and get count",
+        "operationId": "sendHeartbeat",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deviceId": {
+                  "type": "string",
+                  "example": "powerapps-user-1"
+                }
+              }
+            }
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "activeUsers": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "summary": "Upload PTTEP Excel file and start background AI processing",
+        "operationId": "uploadExcelFile",
+        "consumes": [
+          "application/octet-stream"
+        ],
+        "parameters": [
+          {
+            "name": "live",
+            "in": "query",
+            "description": "Whether to run in live mode (creates BC records)",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "file",
+            "in": "body",
+            "description": "Excel File Binary Data",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "status_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pttep/import/status": {
+      "get": {
+        "summary": "Check PTTEP Excel import status and progress",
+        "operationId": "getPttepImportStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "import": {
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": "boolean"
+                    },
+                    "percent": {
+                      "type": "integer"
+                    },
+                    "stage": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "fileName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ]
+      }
+    },
+    "/api/middleware/list": {
+      "get": {
+        "summary": "Get list of all scraped and imported RFQs",
+        "operationId": "getMiddlewareList",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "rfq_list": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "rfq_no": {
+                        "type": "string"
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "drafter": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "close_date": {
+                        "type": "string"
+                      },
+                      "portal": {
+                        "type": "string"
+                      },
+                      "item_count": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ]
+      }
+    },
+    "/api/middleware/pull": {
+      "get": {
+        "summary": "Pull details and items for a specific RFQ",
+        "operationId": "getMiddlewarePull",
+        "parameters": [
+          {
+            "name": "rfq_no",
+            "in": "query",
+            "description": "RFQ Number to pull",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "rfq": {
+                  "type": "object",
+                  "properties": {
+                    "rfq_no": {
+                      "type": "string"
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "portal": {
+                      "type": "string"
+                    },
+                    "drafter": {
+                      "type": "string"
+                    },
+                    "sq_number": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "item_no": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "uom": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "manufacturer": {
+                        "type": "string"
+                      },
+                      "part_number": {
+                        "type": "string"
+                      },
+                      "long_description": {
+                        "type": "string"
+                      },
+                      "lead_time": {
+                        "type": "string"
+                      },
+                      "pr_number": {
+                        "type": "string"
+                      },
+                      "material_code": {
+                        "type": "string"
+                      },
+                      "bc_item_no": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/posco/latest": {
+      "get": {
+        "summary": "Get latest scraped POSCO RFQs",
+        "operationId": "getPoscoLatest",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "bids": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ]
+      }
+    },
+    "/api/posco/sync-item": {
+      "post": {
+        "summary": "Sync or create POSCO item in Business Central",
+        "operationId": "syncPoscoItem",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "example": "create"
+                },
+                "mock": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "rfq_no": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "drafter": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "bc_item_no": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pttep/scrape": {
+      "post": {
+        "summary": "Trigger PTTEP Portal Scraper",
+        "operationId": "triggerPttepScrape",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Item crawl limit count",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "name": "login",
+            "in": "query",
+            "description": "Force fresh portal login",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pttep/catalog/status": {
+      "get": {
+        "summary": "Get latest PTTEP portal catalog details",
+        "operationId": "getPttepCatalogStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "middleware_base_url": {
+                  "type": "string"
+                },
+                "catalog": {
+                  "type": "object",
+                  "properties": {
+                    "exists": {
+                      "type": "boolean"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "scraped_at": {
+                      "type": "string"
+                    },
+                    "item_count": {
+                      "type": "integer"
+                    },
+                    "group_count": {
+                      "type": "integer"
+                    },
+                    "brand_groups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "group_key": {
+                            "type": "string"
+                          },
+                          "brand_name": {
+                            "type": "string"
+                          },
+                          "item_count": {
+                            "type": "integer"
+                          },
+                          "total_quantity": {
+                            "type": "number"
+                          },
+                          "sample_description": {
+                            "type": "string"
+                          },
+                          "close_date": {
+                            "type": "string"
+                          },
+                          "source_file": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "ngrok-skip-browser-warning",
+            "in": "header",
+            "required": false,
+            "type": "string",
+            "default": "true"
+          }
+        ]
+      }
+    }
+  },
+  "securityDefinitions": {
+    "apiKeyHeader": {
+      "type": "apiKey",
+      "name": "x-api-key",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "apiKeyHeader": []
+    }
+  ],
+  "definitions": {
+    "EmailRfqPayload": {
+      "type": "object",
+      "required": [
+        "rfq_no",
+        "subject",
+        "items"
+      ],
+      "properties": {
+        "rfq_no": {
+          "type": "string",
+          "example": "EMAIL_5000043303"
+        },
+        "subject": {
+          "type": "string",
+          "example": "URGENT RFQ 5000043303_ Insulation Material"
+        },
+        "drafter": {
+          "type": "string",
+          "example": "Kathy"
+        },
+        "date": {
+          "type": "string",
+          "example": "2026-07-15"
+        },
+        "close_date": {
+          "type": "string",
+          "example": "2026-07-20"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RfqItem"
+          }
+        }
+      }
+    },
+    "RfqItem": {
+      "type": "object",
+      "required": [
+        "description"
+      ],
+      "properties": {
+        "item_no": {
+          "type": "string",
+          "example": "1"
+        },
+        "description": {
+          "type": "string",
+          "example": "SAFETY GOGGLES, 3M, P/N 1621"
+        },
+        "uom": {
+          "type": "string",
+          "example": "EA"
+        },
+        "qty": {
+          "type": "integer",
+          "example": 10
+        },
+        "manufacturer": {
+          "type": "string",
+          "example": "3M"
+        },
+        "part_number": {
+          "type": "string",
+          "example": "1621"
+        },
+        "long_description": {
+          "type": "string",
+          "example": "Detailed goggles specifications..."
+        }
+      }
+    }
+  }
+}

@@ -69,6 +69,7 @@ async function runPipeline(excelFilePath, options = {}) {
   const useAI = options.useAI !== false;
   const maxAI = options.maxAI || 20;
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  global.pttepImportCancelled = false;
 
   const reportProgress = (percent, stage, detail = '') => {
     if (!onProgress) return;
@@ -95,6 +96,14 @@ async function runPipeline(excelFilePath, options = {}) {
     aiEnabled = aiCapability.running;
     aiMode = aiCapability.mode;
     console.log(`🤖 AI Provider: ${aiCapability.detail}`);
+    
+    // Debug logging to file
+    try {
+      fs.appendFileSync(
+        path.join(__dirname, '..', 'server_debug.log'),
+        `[${new Date().toISOString()}] checkAICapability: ${JSON.stringify(aiCapability)}\n`
+      );
+    } catch (err) {}
   }
   reportProgress(5, 'Checking AI and Business Central connectivity');
 
@@ -188,6 +197,9 @@ async function runPipeline(excelFilePath, options = {}) {
   }));
 
   for (let i = 0; i < flashBuy.items.length; i++) {
+    if (global.pttepImportCancelled) {
+      throw new Error('PTTEP import was cancelled by user.');
+    }
     const item = flashBuy.items[i];
     const progress = `[${i + 1}/${flashBuy.total_items}]`;
     const loopPercent = 15 + Math.round(((i + 1) / Math.max(flashBuy.items.length, 1)) * 65);
@@ -261,6 +273,9 @@ async function runPipeline(excelFilePath, options = {}) {
     
     const newMockItems = [];
     for (let i = 0; i < results.to_create.length; i++) {
+      if (global.pttepImportCancelled) {
+        throw new Error('PTTEP import was cancelled by user.');
+      }
       const item = results.to_create[i];
       try {
         process.stdout.write(`  [${i + 1}/${results.to_create.length}] Creating: ${item.short_description.substring(0, 40)}...`);
@@ -361,6 +376,9 @@ async function runPipeline(excelFilePath, options = {}) {
     console.log(`\nCreating ${brandList.length} Sales Quote(s) in BC (one per brand)...\n`);
 
     for (const group of brandList) {
+      if (global.pttepImportCancelled) {
+        throw new Error('PTTEP import was cancelled by user.');
+      }
       const brandItems = group.items;
       const today = new Date().toISOString().split('T')[0];
       const extDocNo = makeExternalDocNumber(group.brand_name, today);
@@ -493,7 +511,7 @@ async function runPipeline(excelFilePath, options = {}) {
   if (fs.existsSync(outputDir)) {
     const files = fs.readdirSync(outputDir);
     files.forEach(file => {
-      if ((file.startsWith('report_') && file.endsWith('.json')) || (file.startsWith('posco_rfqs_') && file.endsWith('.json'))) {
+      if (file.startsWith('report_') && file.endsWith('.json')) {
         try {
           fs.unlinkSync(path.join(outputDir, file));
         } catch (e) {

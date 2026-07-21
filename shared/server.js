@@ -313,6 +313,28 @@ function getLatestPttepFeedSummary(outputDir) {
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const TEMP_DIR = path.join(__dirname, '..', 'temp');
+const MAX_REQUEST_BODY_BYTES = 16 * 1024;
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+function requestExceedsContentLength(req, maxBytes) {
+  const contentLength = Number(req.headers['content-length']);
+  return Number.isFinite(contentLength) && contentLength > maxBytes;
+}
+
+function getPublicBaseUrl(req) {
+  const configuredUrl = process.env.PUBLIC_BASE_URL || appConfig.publicBaseUrl;
+  if (configuredUrl) return configuredUrl.trim().replace(/\/+$/, '');
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || (req.socket.encrypted ? 'https' : 'http');
+  const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (forwardedHost) return `${protocol}://${forwardedHost}`;
+
+  // Backward compatibility for local tunnel-based development.
+  const tunnelPath = path.join(__dirname, '..', 'tunnel_url.txt');
+  if (fs.existsSync(tunnelPath)) return fs.readFileSync(tunnelPath, 'utf-8').trim().replace(/\/+$/, '');
+  return `http://localhost:${PORT}`;
+}
 
 // Track active online users for UAT avoiding override
 const activeClients = new Map();
@@ -405,6 +427,8 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      // (Email Scraped files logic removed)
+
       const latestPttepSummary = getLatestPttepFeedSummary(outputDir);
       if (latestPttepSummary.exists) {
         const reportDate = (latestPttepSummary.scraped_at || '').split('T')[0];
@@ -459,10 +483,9 @@ const server = http.createServer(async (req, res) => {
         if (rfq) {
           const { parseItemDescription } = require('./parser');
           
-          // Get public base URL from tunnel or fallback
-          const tunnelPath = path.join(__dirname, '..', 'tunnel_url.txt');
-          const tunnelUrl = fs.existsSync(tunnelPath) ? fs.readFileSync(tunnelPath, 'utf-8').trim() : '';
-          const baseUrl = tunnelUrl || `http://localhost:${PORT}`;
+          // Build attachment links from the public middleware URL, not localhost.
+          // Business Central SaaS must be able to fetch these links itself.
+          const baseUrl = getPublicBaseUrl(req);
 
           foundItems = (rfq.items || []).map((item, index) => {
             const rawDesc = item.full_description || item.description || 'Item Description';
@@ -561,6 +584,9 @@ const server = http.createServer(async (req, res) => {
           }
         }
       }
+
+      // (Search in Email files logic removed)
+
       if (foundItems) {
         // Fetch existing items from BC for fuzzy matching
         let bcItems = [];
@@ -703,13 +729,10 @@ const server = http.createServer(async (req, res) => {
     try {
       const outputDir = path.join(__dirname, '..', 'output');
       const summary = getLatestPttepFeedSummary(outputDir);
-      const tunnelPath = path.join(__dirname, '..', 'tunnel_url.txt');
-      const tunnelUrl = fs.existsSync(tunnelPath) ? fs.readFileSync(tunnelPath, 'utf-8').trim() : '';
-
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         success: true,
-        middleware_base_url: tunnelUrl || `http://localhost:${PORT}`,
+        middleware_base_url: getPublicBaseUrl(req),
         catalog: summary
       }));
     } catch (err) {
@@ -765,8 +788,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && pathname === '/api/heartbeat') {
+    if (requestExceedsContentLength(req, MAX_REQUEST_BODY_BYTES)) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request body is too large.' }));
+      return;
+    }
     let body = '';
-    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('data', chunk => {
+      if (body.length + chunk.length > MAX_REQUEST_BODY_BYTES) {
+        if (!res.headersSent) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body is too large.' }));
+        }
+        req.destroy();
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
@@ -839,13 +877,28 @@ const server = http.createServer(async (req, res) => {
 
   // ─── API: Submit POSCO OTP (Remote OTP) ───
   if (req.method === 'POST' && pathname === '/api/posco/submit-otp') {
+    if (requestExceedsContentLength(req, MAX_REQUEST_BODY_BYTES)) {
+      res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Request body is too large.' }));
+      return;
+    }
     let body = '';
-    req.on('data', chunk => body += chunk.toString());
+    req.on('data', chunk => {
+      if (body.length + chunk.length > MAX_REQUEST_BODY_BYTES) {
+        if (!res.headersSent) {
+          res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'Request body is too large.' }));
+        }
+        req.destroy();
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
         if (payload.otp && global.poscoOtpCallback) {
-          console.log(`🤖 Received remote OTP: ${payload.otp}`);
+          console.log('Received remote OTP.');
           global.poscoOtpCallback(payload.otp); // Resolve the promise in scraper
           global.poscoOtpCallback = null; // Clear the callback
           scraperState.posco.status_text = 'OTP submitted, verifying login...';
@@ -886,6 +939,34 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ success: false, error: err.message }));
     }
+    return;
+  }
+
+  // ─── API: Cancel POSCO Scraper (POST /api/posco/cancel) ────
+  if (req.method === 'POST' && pathname === '/api/posco/cancel') {
+    console.log('🤖 POSCO Scraper cancellation requested...');
+    if (global.activeBrowser) {
+      global.activeBrowser.close().catch(e => {});
+      global.activeBrowser = null;
+    }
+    scraperState.posco.running = false;
+    scraperState.posco.startedAt = null;
+    scraperState.posco.progress = 0;
+    scraperState.posco.status_text = 'Cancelled';
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ success: true, message: 'POSCO scraper cancellation triggered.' }));
+    return;
+  }
+
+  // ─── API: Cancel PTTEP Import (POST /api/pttep/cancel) ────
+  if (req.method === 'POST' && pathname === '/api/pttep/cancel') {
+    console.log('🤖 PTTEP Import pipeline cancellation requested...');
+    global.pttepImportCancelled = true;
+    importState.pttep.running = false;
+    importState.pttep.percent = 0;
+    importState.pttep.stage = 'Cancelled';
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ success: true, message: 'PTTEP import cancellation triggered.' }));
     return;
   }
 
@@ -937,8 +1018,23 @@ const server = http.createServer(async (req, res) => {
 
   // ─── API: Sync POSCO Item to Business Central ──────────────
   if (req.method === 'POST' && pathname === '/api/posco/sync-item') {
+    if (requestExceedsContentLength(req, MAX_REQUEST_BODY_BYTES)) {
+      res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Request body is too large.' }));
+      return;
+    }
     let body = '';
-    req.on('data', chunk => body += chunk);
+    req.on('data', chunk => {
+      if (body.length + chunk.length > MAX_REQUEST_BODY_BYTES) {
+        if (!res.headersSent) {
+          res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'Request body is too large.' }));
+        }
+        req.destroy();
+        return;
+      }
+      body += chunk;
+    });
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body);
@@ -994,6 +1090,11 @@ const server = http.createServer(async (req, res) => {
 
   // ─── API: Upload Excel File ────────────────────────────────
   if (req.method === 'POST' && pathname === '/api/upload') {
+    if (requestExceedsContentLength(req, MAX_UPLOAD_BYTES)) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Upload exceeds the 15 MB limit.' }));
+      return;
+    }
     const isLive = reqUrl.searchParams.get('live') === 'true';
     const tempFileName = `upload_${Date.now()}.xlsx`;
     const tempFilePath = path.join(TEMP_DIR, tempFileName);
@@ -1012,9 +1113,29 @@ const server = http.createServer(async (req, res) => {
     activeImport.summary = null;
 
     const writeStream = fs.createWriteStream(tempFilePath);
+    let uploadBytes = 0;
+    let uploadRejected = false;
+    req.on('data', chunk => {
+      uploadBytes += chunk.length;
+      if (uploadRejected || uploadBytes <= MAX_UPLOAD_BYTES) return;
+
+      uploadRejected = true;
+      req.unpipe(writeStream);
+      writeStream.destroy();
+      fs.unlink(tempFilePath, () => {});
+      activeImport.running = false;
+      activeImport.stage = 'Upload rejected';
+      activeImport.error = 'Upload exceeds the 15 MB limit.';
+      if (!res.headersSent) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Upload exceeds the 15 MB limit.' }));
+      }
+      req.resume();
+    });
     req.pipe(writeStream);
 
     writeStream.on('finish', () => {
+      if (uploadRejected) return;
       console.log(`✅ File saved. Running pipeline on: ${tempFileName} in background`);
       activeImport.percent = 4;
       activeImport.stage = 'Upload completed';
@@ -1057,6 +1178,7 @@ const server = http.createServer(async (req, res) => {
     });
 
     writeStream.on('error', (err) => {
+      if (uploadRejected) return;
       console.error(`  ❌ File write error: ${err.message}`);
       activeImport.running = false;
       activeImport.completedAt = new Date().toISOString();
@@ -1072,9 +1194,15 @@ const server = http.createServer(async (req, res) => {
   // ─── API: Serve Attachments (GET /api/attachments/*) ──────────
   if (req.method === 'GET' && pathname.startsWith('/api/attachments/')) {
     const relativePath = pathname.substring('/api/attachments/'.length); // e.g. "rfq_5000041486/Fan 1.jpg"
-    // Security check: prevent directory traversal
-    const safePath = relativePath.replace(/\.\./g, '');
-    const docPath = path.join(__dirname, '..', 'output', 'docs', safePath);
+    // Security check: prevent directory traversal using absolute path resolution
+    const absoluteBaseDir = path.resolve(__dirname, '..', 'output', 'docs');
+    const docPath = path.resolve(absoluteBaseDir, relativePath);
+
+    if (!docPath.startsWith(absoluteBaseDir)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('403 Forbidden: Access Denied');
+      return;
+    }
 
     const ext = path.extname(docPath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';

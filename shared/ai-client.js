@@ -38,6 +38,25 @@ if (fs.existsSync(CONFIG_PATH)) {
   }
 }
 
+// Support Environment Variables for easy Docker/VPS/Azure deployment without exposing keys in config.json
+if (process.env.AI_PROVIDER) {
+  aiConfig.provider = process.env.AI_PROVIDER;
+}
+if (process.env.OLLAMA_ENDPOINT_URL) {
+  aiConfig.aiEndpointUrl = process.env.OLLAMA_ENDPOINT_URL;
+}
+
+if (aiConfig.provider === 'azure') {
+  if (!aiConfig.config) aiConfig.config = {};
+  if (process.env.AZURE_OPENAI_ENDPOINT) aiConfig.config.endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  if (process.env.AZURE_OPENAI_API_KEY) aiConfig.config.apiKey = process.env.AZURE_OPENAI_API_KEY;
+  if (process.env.AZURE_OPENAI_DEPLOYMENT) aiConfig.config.deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT;
+} else if (aiConfig.provider === 'openrouter') {
+  if (!aiConfig.config) aiConfig.config = {};
+  if (process.env.OPENROUTER_API_KEY) aiConfig.config.apiKey = process.env.OPENROUTER_API_KEY;
+  if (process.env.OPENROUTER_MODEL) aiConfig.config.model = process.env.OPENROUTER_MODEL;
+}
+
 /**
  * Check active AI capability mode
  */
@@ -88,7 +107,7 @@ async function aiGenerateText(prompt, systemMessage = "You are a helpful assista
           { role: 'user', content: prompt }
         ],
         temperature: temperature,
-        max_tokens: 2000
+        max_tokens: 8000
       });
       return {
         text: response.choices[0].message.content,
@@ -116,7 +135,7 @@ async function aiGenerateText(prompt, systemMessage = "You are a helpful assista
           { role: 'user', content: prompt }
         ],
         temperature: temperature,
-        max_tokens: 2000
+        max_tokens: 8000
       });
       return {
         text: response.choices[0].message.content,
@@ -144,7 +163,7 @@ async function aiGenerateText(prompt, systemMessage = "You are a helpful assista
           { role: 'user', content: prompt }
         ],
         temperature: temperature,
-        max_tokens: 2000
+        max_tokens: 8000
       });
       return {
         text: response.choices[0].message.content,
@@ -162,7 +181,7 @@ async function aiGenerateText(prompt, systemMessage = "You are a helpful assista
     try {
        const fetchFn = typeof fetch === 'function' ? fetch : (...args) => import('node-fetch').then(({default: f}) => f(...args));
        const customUrl = aiConfig.aiEndpointUrl;
-       const aiUrl = customUrl ? `${customUrl}/api/generate` : 'http://localhost:11434/api/generate';
+       const aiUrl = customUrl ? `${customUrl}/api/generate` : 'http://127.0.0.1:11434/api/generate';
        
        const responseOllama = await fetchFn(aiUrl, {
           method: 'POST',
@@ -171,7 +190,7 @@ async function aiGenerateText(prompt, systemMessage = "You are a helpful assista
             model: ollamaClient.DEFAULT_MODEL,
             prompt: `System: ${systemMessage}\n\nUser: ${prompt}`,
             stream: false,
-            options: { temperature: temperature, num_predict: 2000 }
+            options: { temperature: temperature, num_predict: 8000 }
           })
        });
        

@@ -17,7 +17,7 @@ try {
   console.warn("Could not load config.json:", e.message);
 }
 
-const OLLAMA_BASE_URL = appConfig.aiEndpointUrl || 'http://localhost:11434';
+const OLLAMA_BASE_URL = appConfig.aiEndpointUrl || 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen2.5:7b-instruct';
 
 /**
@@ -181,8 +181,25 @@ async function checkOllama() {
         }
       });
     });
-    req.on('error', () => resolve({ running: false, models: [] }));
-    req.setTimeout(5000, () => { req.destroy(); resolve({ running: false, models: [] }); });
+    req.on('error', (err) => {
+      try {
+        fs.appendFileSync(
+          path.join(__dirname, '..', 'server_debug.log'),
+          `[${new Date().toISOString()}] checkOllama error: ${err.message}\n`
+        );
+      } catch (e) {}
+      resolve({ running: false, models: [] });
+    });
+    req.setTimeout(5000, () => {
+      try {
+        fs.appendFileSync(
+          path.join(__dirname, '..', 'server_debug.log'),
+          `[${new Date().toISOString()}] checkOllama timeout\n`
+        );
+      } catch (e) {}
+      req.destroy();
+      resolve({ running: false, models: [] });
+    });
   });
 }
 

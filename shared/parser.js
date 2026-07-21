@@ -137,25 +137,89 @@ function parsePdfTableRegex(rawText) {
   const items = [];
   if (!rawText) return items;
   const lines = rawText.split(/\r?\n/);
-  const lineRegex1 = /^\s*(\d+)\s+(.+?)\s+(\d+)\s+([A-Za-z]+)\s*$/; // item_no description qty uom
-  const lineRegex2 = /^\s*(\d+)\s+(.+?)\s+([A-Za-z]+)\s+(\d+)\s*$/; // item_no description uom qty
+  
+  const startLineRegex = /^\s*(\d+)(?:\s+(.*))?$/;
+  const endRegex1 = /(?:^|\s+)(\d+)\s+([A-Za-z]+)\s*$/; // e.g., "3 PAC" or "3 EA"
+  const endRegex2 = /(?:^|\s+)([A-Za-z]+)\s+(\d+)\s*$/; // e.g., "PAC 3" or "EA 5"
+  
+  let currentItem = null;
+  
   lines.forEach(line => {
-    let m = line.match(lineRegex1);
-    if (!m) m = line.match(lineRegex2);
-    if (m) {
-      const [, item_no, description, qtyOrUom, uomOrQty] = m;
-      const qty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
-      const uom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
-      items.push({
-        item_no: item_no,
-        description: description.trim(),
-        uom: uom.trim(),
-        qty: qty.trim(),
-        part_number: "",
-        manufacturer: ""
-      });
+    const trimmedLine = line.trim();
+    if (!trimmedLine) return;
+    
+    const startMatch = trimmedLine.match(startLineRegex);
+    
+    if (startMatch) {
+      if (currentItem && currentItem.description) {
+        items.push(currentItem);
+      }
+      
+      const itemNo = startMatch[1];
+      const rest = startMatch[2] ? startMatch[2].trim() : "";
+      
+      let endMatch = rest ? rest.match(endRegex1) : null;
+      if (rest && !endMatch) endMatch = rest.match(endRegex2);
+      
+      if (endMatch) {
+        const matchedText = endMatch[0];
+        const qtyOrUom = endMatch[1].trim();
+        const uomOrQty = endMatch[2].trim();
+        const qty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
+        const uom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
+        
+        const description = rest.substring(0, rest.lastIndexOf(matchedText)).trim();
+        
+        items.push({
+          item_no: itemNo,
+          description: description,
+          uom: uom,
+          qty: qty,
+          part_number: "",
+          manufacturer: ""
+        });
+        currentItem = null;
+      } else {
+        currentItem = {
+          item_no: itemNo,
+          description: rest,
+          uom: "EA",
+          qty: "1",
+          part_number: "",
+          manufacturer: ""
+        };
+      }
+    } else {
+      if (currentItem) {
+        let endMatch = trimmedLine.match(endRegex1);
+        if (!endMatch) endMatch = trimmedLine.match(endRegex2);
+        
+        if (endMatch) {
+          const matchedText = endMatch[0];
+          const qtyOrUom = endMatch[1].trim();
+          const uomOrQty = endMatch[2].trim();
+          const qty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
+          const uom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
+          
+          const extraDesc = trimmedLine.substring(0, trimmedLine.lastIndexOf(matchedText)).trim();
+          
+          currentItem.description = (currentItem.description + " " + extraDesc).trim();
+          currentItem.qty = qty;
+          currentItem.uom = uom;
+          
+          items.push(currentItem);
+          currentItem = null;
+        } else {
+          currentItem.description = (currentItem.description + " " + trimmedLine).trim();
+        }
+      }
     }
   });
+  
+  if (currentItem && currentItem.description) {
+    items.push(currentItem);
+  }
+  
   return items;
 }
 

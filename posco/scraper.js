@@ -372,7 +372,7 @@ ${rawText}`;
     }
     return null;
   } catch (err) {
-    console.error(`      ⚠️ Ollama PDF parsing failed: ${err.message}. Make sure Ollama is running.`);
+    console.error(`      ⚠️ AI PDF parsing failed: ${err.message}.`);
     if (jsonText) {
       console.log(`      [Debug] Raw Ollama response was:\n${jsonText}\n`);
     }
@@ -474,11 +474,11 @@ ${JSON.stringify(chunk, null, 2)}`;
       if (extractedItems.length === chunk.length) {
         allCleaned.push(...extractedItems);
       } else {
-        console.warn(`      ⚠️ Ollama truncated chunk! Expected ${chunk.length} items, got ${extractedItems.length}. Keeping original chunk.`);
+        console.warn(`      ⚠️ AI truncated chunk! Expected ${chunk.length} items, got ${extractedItems.length}. Keeping original chunk.`);
         allCleaned.push(...chunk);
       }
     } catch (err) {
-      console.error(`      ⚠️ Ollama HTML item cleaning failed: ${err.message}. Keeping original chunk.`);
+      console.error(`      ⚠️ AI HTML item cleaning failed: ${err.message}. Keeping original chunk.`);
       allCleaned.push(...chunk);
     }
   }
@@ -546,7 +546,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
     if (fs.existsSync(OUTPUT_DIR)) {
       const files = fs.readdirSync(OUTPUT_DIR);
       files.forEach(file => {
-        if ((file.startsWith('report_') && file.endsWith('.json')) || (file.startsWith('posco_rfqs_') && file.endsWith('.json'))) {
+        if (file.startsWith('posco_rfqs_') && file.endsWith('.json')) {
           try {
             fs.unlinkSync(path.join(OUTPUT_DIR, file));
           } catch (e) {
@@ -568,14 +568,9 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
     viewport: { width: 1280, height: 800 },
   };
 
-  // Load saved session if it exists and we aren't forcing login
-  const hasSession = fs.existsSync(SESSION_PATH);
-  if (hasSession && !forceLogin) {
-    console.log(`🔑 Loading existing session cookies from: ${path.basename(SESSION_PATH)}`);
-    contextOptions.storageState = SESSION_PATH;
-  } else {
-    console.log('⚠️ No active session found. Headed login mode will be activated.');
-  }
+  // Always force fresh login
+  const hasSession = false;
+  console.log('🌐 Always performing fresh login for POSCO scraper...');
 
   // ALWAYS run headless since we now have Remote OTP
   const isHeaded = false;
@@ -585,6 +580,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
     headless: true,
     slowMo: 0
   });
+  global.activeBrowser = browser;
 
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
@@ -1023,6 +1019,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
             fs.mkdirSync(rfqDocsDir, { recursive: true });
           }
 
+          let htmlTableItems = [];
           let nativeExcelItems = [];
           
           // NEW: Fallback text parser for pseudo-tables
@@ -1153,10 +1150,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
                           if (excelOcrText) extractedText += excelOcrText;
 
                           // Run native parser
-                          const parsedItems = parsePoscoExcel(persistentFilePath);
-                          if (parsedItems && parsedItems.length > 0) {
-                            nativeExcelItems = nativeExcelItems.concat(parsedItems);
-                          }
+                          // Native Excel Parsing removed per user request (relying on AI)
                         }
                       } else if (ext === '.docx' || ext === '.doc') {
                         if (ext === '.docx') {
@@ -1194,23 +1188,19 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
           }
 
           // Send combined text (Notice text + PDF text) to Ollama
-          if (nativeExcelItems && nativeExcelItems.length > 0) {
-            reportProgress(percent, `[Page ${currentPage}] Extracted items natively from Excel for RFQ ${bid.rfq_no}. Bypassing AI...`);
-            console.log(`      🚀 Native Excel parser successfully extracted ${nativeExcelItems.length} items from attachments! Bypassing AI.`);
-            items = nativeExcelItems;
-          } else if (combinedRawText && combinedRawText.trim().length > 50) {
-            reportProgress(percent, `[Page ${currentPage}] AI extracting item list with Ollama for RFQ ${bid.rfq_no}...`);
-            console.log(`      Total combined text size: ${combinedRawText.length} characters. Sending to local Ollama...`);
+          if (combinedRawText && combinedRawText.trim().length > 50) {
+            const aiClient = require('../shared/ai-client.js');
+            const capability = await aiClient.checkAICapability();
+            const aiName = capability.detail || 'AI';
+            reportProgress(percent, `[Page ${currentPage}] AI extracting item list with ${aiName} for RFQ ${bid.rfq_no}...`);
+            console.log(`      Total combined text size: ${combinedRawText.length} characters. Sending to ${aiName}...`);
             const parsedItems = await parsePdfWithOllama(combinedRawText);
             let aiSuccess = false;
             if (parsedItems && Array.isArray(parsedItems) && parsedItems.length > 0) {
-              // Accept AI items regardless of whether part_number/manufacturer is filled.
-              // The cleanItemsWithOllama step below will enrich those fields.
               console.log(`      🚀 AI parsed ${parsedItems.length} items from PDF successfully!`);
               items = parsedItems;
               aiSuccess = true;
             }
-            // Fallback to regex parser ONLY if AI returned zero items
             if (!aiSuccess) {
               console.log('      🤖 AI returned no items, falling back to regex parser...');
               const regexItems = parsePdfTableRegex(combinedRawText);
@@ -1222,9 +1212,9 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
           }
 
           // 2. Extract items from the HTML table on the web page first to compare or use as fallback
-          let htmlTableItems = [];
+          let evaluatedHtmlItems = [];
           try {
-            htmlTableItems = await page.evaluate(() => {
+            evaluatedHtmlItems = await page.evaluate(() => {
               const tables = Array.from(document.querySelectorAll('table'));
               // Consider all tables (including nested) for item extraction
               const itemTable = tables.find(t => {
@@ -1279,6 +1269,10 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               });
             });
             
+            if (evaluatedHtmlItems && evaluatedHtmlItems.length > 0) {
+              htmlTableItems = evaluatedHtmlItems;
+            }
+            
             // Prioritization: Prefer HTML table items when available
             // Only trust AI if it finds AT LEAST 2 more items than the HTML table (prevents hallucinating 2 items out of 1)
             const hasAttachments = attachmentsList && attachmentsList.length > 0;
@@ -1305,11 +1299,14 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
             ];
           }
 
-          // 4. Apply Ollama cleaning/structuring on HTML-scraped or fallback items to extract brand/manufacturer and part number
+          // 4. Apply AI cleaning/structuring on HTML-scraped or fallback items to extract brand/manufacturer and part number
           const needsCleaning = items.length > 0 && items.every(item => !item.manufacturer && !item.part_number);
           if (needsCleaning) {
-            reportProgress(percent, `[Page ${currentPage}] AI extracting brand and part number with Ollama for RFQ ${bid.rfq_no}...`);
-            console.log(`      Applying Ollama AI to extract manufacturer/brand and part number from descriptions...`);
+            const aiClient = require('../shared/ai-client.js');
+            const capability = await aiClient.checkAICapability();
+            const aiName = capability.detail || 'AI';
+            reportProgress(percent, `[Page ${currentPage}] AI extracting brand and part number with ${aiName} for RFQ ${bid.rfq_no}...`);
+            console.log(`      Applying ${aiName} to extract manufacturer/brand and part number from descriptions...`);
             const cleanedItems = await cleanItemsWithOllama(items);
             if (cleanedItems && Array.isArray(cleanedItems) && cleanedItems.length > 0) {
               console.log(`      🚀 AI structured and cleaned items successfully!`);
@@ -1511,7 +1508,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
     if (fs.existsSync(OUTPUT_DIR)) {
       const files = fs.readdirSync(OUTPUT_DIR);
       files.forEach(file => {
-        if ((file.startsWith('report_') && file.endsWith('.json')) || (file.startsWith('posco_rfqs_') && file.endsWith('.json'))) {
+        if (file.startsWith('posco_rfqs_') && file.endsWith('.json')) {
           try {
             fs.unlinkSync(path.join(OUTPUT_DIR, file));
           } catch (e) {
