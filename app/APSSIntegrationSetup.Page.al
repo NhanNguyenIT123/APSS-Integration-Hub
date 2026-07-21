@@ -23,6 +23,12 @@ page 70301 "APSS Integration Setup"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the default customer to create Sales Quotes for';
                 }
+                field("API Key"; Rec."API Key")
+                {
+                    ApplicationArea = All;
+                    ExtendedDatatype = Masked;
+                    ToolTip = 'Specifies the API key / Access Code to connect to the APSS Integration Hub';
+                }
             }
         }
     }

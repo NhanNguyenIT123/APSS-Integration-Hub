@@ -1,11 +1,11 @@
-page 70302 "APSS POSCO RFQ Feed"
+page 70308 "APSS PTTEP RFQ Feed"
 {
     PageType = List;
     ApplicationArea = All;
     UsageCategory = Lists;
     SourceTable = "APSS RFQ Buffer";
-    SourceTableView = where(Portal = const('POSCO e-Pro'));
-    Caption = 'POSCO RFQ Feed';
+    SourceTableView = where(Portal = const('PTTEP FlashBuy'));
+    Caption = 'PTTEP RFQ Feed';
     InsertAllowed = false;
     ModifyAllowed = false;
 
@@ -13,16 +13,6 @@ page 70302 "APSS POSCO RFQ Feed"
     {
         area(Content)
         {
-            group(POSCOControl)
-            {
-                Caption = 'POSCO e-Pro Configuration';
-                field(RfqNoToScrapeField; RfqNoToScrape)
-                {
-                    ApplicationArea = All;
-                    Caption = 'POSCO RFQ No. to Scrape';
-                    ToolTip = 'Enter a specific POSCO RFQ number to scrape, or leave blank to scrape all active ones.';
-                }
-            }
             repeater(Group)
             {
                 field("RFQ No."; Rec."RFQ No.")
@@ -79,7 +69,7 @@ page 70302 "APSS POSCO RFQ Feed"
             {
                 ApplicationArea = All;
                 Caption = 'Refresh RFQ List';
-                ToolTip = 'Re-sync the RFQ list from the Middleware database. Use this if the list appears outdated.';
+                ToolTip = 'Re-sync the RFQ list from the Middleware database. Use this if the list appears outdated or after uploading a new PTTEP Excel file.';
                 Image = Refresh;
                 Promoted = true;
                 PromotedCategory = Process;
@@ -118,12 +108,13 @@ page 70302 "APSS POSCO RFQ Feed"
             }
 
 
-            action(TriggerPoscoScrape)
+
+            action(UploadPttepExcel)
             {
                 ApplicationArea = All;
-                Caption = 'Trigger POSCO Scrape';
-                ToolTip = 'Start POSCO portal scraping on the Middleware server (fire & forget). You can close BC after triggering - click "Check Scrape Status" to monitor progress and auto-refresh when done.';
-                Image = CreateXMLFile;
+                Caption = 'Upload PTTEP Excel Feed';
+                ToolTip = 'Select a PTTEP FlashBuy catalog Excel sheet and upload it to Middleware.';
+                Image = ImportExcel;
                 Promoted = true;
                 PromotedCategory = Process;
                 PromotedIsBig = true;
@@ -131,19 +122,38 @@ page 70302 "APSS POSCO RFQ Feed"
                 trigger OnAction()
                 var
                     SyncCU: Codeunit "APSS Middleware Sync";
+                    InStream: InStream;
+                    FileName: Text;
                 begin
-                    SyncCU.TriggerPoscoScrape(RfqNoToScrape);
-                    if not Rec.Get(Rec."RFQ No.") then
-                        if Rec.FindFirst() then;
-                    CurrPage.Update(false);
+                    if UploadIntoStream('Upload PTTEP Excel File', '', 'Excel Files (*.xlsx)|*.xlsx', FileName, InStream) then begin
+                        SyncCU.UploadPttepExcel(FileName, InStream);
+                        CurrPage.Update(false);
+                    end;
                 end;
             }
 
-            action(CheckScrapeStatus)
+            action(CancelPttepImport)
             {
                 ApplicationArea = All;
-                Caption = 'Check Scrape Status';
-                ToolTip = 'Check the current POSCO scraping progress. If scraping is already finished, the RFQ list will be refreshed automatically.';
+                Caption = 'Cancel PTTEP Import';
+                ToolTip = 'Abort active PTTEP Excel ingestion pipeline on the Middleware.';
+                Image = Cancel;
+                Promoted = true;
+                PromotedCategory = Process;
+
+                trigger OnAction()
+                var
+                    SyncCU: Codeunit "APSS Middleware Sync";
+                begin
+                    SyncCU.CancelPttepImport();
+                end;
+            }
+
+            action(CheckPttepImportStatus)
+            {
+                ApplicationArea = All;
+                Caption = 'Check Import Status';
+                ToolTip = 'Check the current progress of the PTTEP Excel ingestion pipeline. If completed, the RFQ list will be refreshed automatically.';
                 Image = Track;
                 Promoted = true;
                 PromotedCategory = Process;
@@ -153,28 +163,21 @@ page 70302 "APSS POSCO RFQ Feed"
                 var
                     SyncCU: Codeunit "APSS Middleware Sync";
                 begin
-                    SyncCU.CheckPoscoScrapeStatus();
-                    if not Rec.Get(Rec."RFQ No.") then
-                        if Rec.FindFirst() then;
+                    SyncCU.CheckPttepImportStatus();
                     CurrPage.Update(false);
                 end;
             }
 
-            action(CancelPoscoScrape)
+            action(OpenPttepBrandFeed)
             {
                 ApplicationArea = All;
-                Caption = 'Cancel POSCO Scrape';
-                ToolTip = 'Force-close active POSCO scraper session on the Middleware.';
-                Image = Cancel;
+                Caption = 'PTTEP Brand Feed';
+                ToolTip = 'Open the PTTEP Brand Feed analysis page.';
+                Image = ShowList;
+                RunObject = Page "APSS PTTEP Brand Feed";
                 Promoted = true;
                 PromotedCategory = Process;
-
-                trigger OnAction()
-                var
-                    SyncCU: Codeunit "APSS Middleware Sync";
-                begin
-                    SyncCU.CancelPoscoScrape();
-                end;
+                PromotedIsBig = true;
             }
 
             action(OpenSetup)
@@ -189,7 +192,4 @@ page 70302 "APSS POSCO RFQ Feed"
             }
         }
     }
-
-    var
-        RfqNoToScrape: Text[50];
 }

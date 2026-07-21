@@ -4,13 +4,23 @@ pageextension 70301 "APSS Sales Quotes Ext" extends "Sales Quotes"
     {
         addlast(processing)
         {
-            action("APSSRfqFeed")
+            action("APSSPoscoRfqFeed")
             {
                 ApplicationArea = All;
-                Caption = 'APSS RFQ Feed';
-                ToolTip = 'View active RFQs pulled from the Integration Middleware.';
+                Caption = 'POSCO RFQ Feed';
+                ToolTip = 'View active POSCO RFQs pulled from the Integration Middleware.';
                 Image = Web;
-                RunObject = Page "APSS RFQ Feed";
+                RunObject = Page "APSS POSCO RFQ Feed";
+                Promoted = true;
+                PromotedCategory = Process;
+            }
+            action("APSSPttepRfqFeed")
+            {
+                ApplicationArea = All;
+                Caption = 'PTTEP RFQ Feed';
+                ToolTip = 'View active PTTEP RFQs pulled from the Integration Middleware.';
+                Image = Web;
+                RunObject = Page "APSS PTTEP RFQ Feed";
                 Promoted = true;
                 PromotedCategory = Process;
             }
