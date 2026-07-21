@@ -41,3 +41,8 @@ pttep/.browser-profile/
 *.log
 node_modules/
 
+# AI Agents Config
+.agents/
+
+# Docker container state and backups
+docker-state-backup/
