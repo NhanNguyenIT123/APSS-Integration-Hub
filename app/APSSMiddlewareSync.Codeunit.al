@@ -208,8 +208,13 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.Reset();
         SalesHeader.SetRange("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.SetRange("External Document No.", RfqNo);
-        if SalesHeader.FindFirst() then
-            Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+        if SalesHeader.FindFirst() then begin
+            if (SalesHeader."Opportunity No." <> '') and (not Opportunity.Get(SalesHeader."Opportunity No.")) then begin
+                SalesHeader."Opportunity No." := '';
+                SalesHeader.Delete(true);
+            end else
+                Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+        end;
 
         // Auto-create Opportunity (CRM compliant flow)
         Opportunity.Init();
@@ -2866,8 +2871,13 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.Reset();
         SalesHeader.SetRange("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.SetRange("External Document No.", RfqNo);
-        if SalesHeader.FindFirst() then
-            Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+        if SalesHeader.FindFirst() then begin
+            if (SalesHeader."Opportunity No." <> '') and (not Opportunity.Get(SalesHeader."Opportunity No.")) then begin
+                SalesHeader."Opportunity No." := '';
+                SalesHeader.Delete(true);
+            end else
+                Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+        end;
 
         // Dynamic Customer Resolution
         CustomerNoToUse := Setup."Default Customer No.";
