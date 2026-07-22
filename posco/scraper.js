@@ -966,6 +966,7 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
 
           if (boardBodyText) {
             console.log(`      Extracted board notice body text (${boardBodyText.length} chars).`);
+            bid.notice_text = boardBodyText;
           }
 
           // 1. Download and parse all attached files

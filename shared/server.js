@@ -509,9 +509,13 @@ const server = http.createServer(async (req, res) => {
             type: att.type
           }));
 
+          const fullContextSubject = rfq.notice_text 
+            ? `${rfq.subject}\n\nNotice Body:\n${rfq.notice_text}`
+            : rfq.subject;
+
           rfqDetails = {
             rfq_no: rfq.rfq_no,
-            subject: rfq.subject,
+            subject: fullContextSubject,
             portal: 'POSCO e-Pro',
             drafter: rfq.drafter,
             attachments: mappedAttachments
