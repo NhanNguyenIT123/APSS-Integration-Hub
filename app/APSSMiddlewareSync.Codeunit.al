@@ -279,6 +279,8 @@ codeunit 70303 "APSS Middleware Sync"
         
         // Parse and Validate Requested Delivery Date from Close Date (prevent past shipment dates and warnings)
         if RfqBuffer.Get(RfqNo) then begin
+            if RfqBuffer.Subject <> '' then
+                SalesHeader.SetWorkDescription(RfqBuffer.Subject);
             if RfqBuffer."Close Date" <> '' then begin
                 ParsedDate := ParseDateText(RfqBuffer."Close Date");
                 if ParsedDate < WorkDate() then
@@ -2948,6 +2950,8 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.Validate("Your Reference", CopyStr(Opportunity.Description, 1, MaxStrLen(SalesHeader."Your Reference")));
         
         if RfqBuffer.Get(RfqNo) then begin
+            if RfqBuffer.Subject <> '' then
+                SalesHeader.SetWorkDescription(RfqBuffer.Subject);
             if RfqBuffer."Close Date" <> '' then begin
                 ParsedDate := ParseDateText(RfqBuffer."Close Date");
                 if ParsedDate < WorkDate() then
