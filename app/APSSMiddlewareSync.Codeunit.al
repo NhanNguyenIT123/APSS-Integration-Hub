@@ -209,11 +209,15 @@ codeunit 70303 "APSS Middleware Sync"
         SalesHeader.SetRange("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.SetRange("External Document No.", RfqNo);
         if SalesHeader.FindFirst() then begin
-            if (SalesHeader."Opportunity No." <> '') and (not Opportunity.Get(SalesHeader."Opportunity No.")) then begin
-                SalesHeader."Opportunity No." := '';
-                SalesHeader.Delete(true);
-            end else
-                Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+            DocAttachment.Reset();
+            DocAttachment.SetRange("Table ID", Database::"Sales Header");
+            DocAttachment.SetRange("Document Type", SalesHeader."Document Type");
+            DocAttachment.SetRange("No.", SalesHeader."No.");
+            if DocAttachment.FindSet() then
+                DocAttachment.DeleteAll(false);
+
+            SalesHeader."Opportunity No." := '';
+            SalesHeader.Delete(false);
         end;
 
         // Auto-create Opportunity (CRM compliant flow)
@@ -2867,16 +2871,20 @@ codeunit 70303 "APSS Middleware Sync"
     begin
         Setup.GetSetupRecord();
             
-        // Check if Sales Quote already exists
+        // Check if Sales Quote already exists; safely clear old quote if present
         SalesHeader.Reset();
         SalesHeader.SetRange("Document Type", SalesHeader."Document Type"::Quote);
         SalesHeader.SetRange("External Document No.", RfqNo);
         if SalesHeader.FindFirst() then begin
-            if (SalesHeader."Opportunity No." <> '') and (not Opportunity.Get(SalesHeader."Opportunity No.")) then begin
-                SalesHeader."Opportunity No." := '';
-                SalesHeader.Delete(true);
-            end else
-                Error('RFQ %1 has already been imported into Sales Quote %2.', RfqNo, SalesHeader."No.");
+            DocAttachment.Reset();
+            DocAttachment.SetRange("Table ID", Database::"Sales Header");
+            DocAttachment.SetRange("Document Type", SalesHeader."Document Type");
+            DocAttachment.SetRange("No.", SalesHeader."No.");
+            if DocAttachment.FindSet() then
+                DocAttachment.DeleteAll(false);
+
+            SalesHeader."Opportunity No." := '';
+            SalesHeader.Delete(false);
         end;
 
         // Dynamic Customer Resolution
