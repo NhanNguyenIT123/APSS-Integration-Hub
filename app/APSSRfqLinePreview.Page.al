@@ -80,13 +80,26 @@ page 70303 "APSS RFQ Line Preview"
                     ApplicationArea = All;
                     
                     trigger OnValidate()
+                    var
+                        Item: Record Item;
+                        SyncCU: Codeunit "APSS Middleware Sync";
+                        NewScore: Decimal;
+                        CandidateReason: Text[250];
                     begin
                         if Rec."Matched Item No." <> '' then begin
                             Rec."Match Status" := Rec."Match Status"::"Auto-Link";
-                            Rec."Match Reason" := 'Manually selected by user';
+                            if Item.Get(Rec."Matched Item No.") then begin
+                                NewScore := SyncCU.EvaluateCandidateScore(Rec."Material Description", Rec."Part Number", Rec.Manufacturer, Item, true, CandidateReason);
+                                Rec."Match Score" := Round(NewScore * 100, 0.01);
+                                Rec."Match Reason" := CopyStr('Manually selected. ' + CandidateReason, 1, MaxStrLen(Rec."Match Reason"));
+                            end else begin
+                                Rec."Match Score" := 100.0;
+                                Rec."Match Reason" := 'Manually selected by user';
+                            end;
                         end else begin
                             Rec."Match Status" := Rec."Match Status"::"Create Blank";
-                            Rec."Match Reason" := '';
+                            Rec."Match Score" := 0;
+                            Rec."Match Reason" := 'Manual create blank';
                         end;
                         Rec.CalcFields("BC Item Description");
                     end;

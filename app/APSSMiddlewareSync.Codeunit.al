@@ -3261,23 +3261,40 @@ codeunit 70303 "APSS Middleware Sync"
         exit(BestScore >= 0.40);
     end;
 
-    local procedure EvaluateCandidateScore(MatDesc: Text; PartNoText: Text; ManufacturerText: Text; Item: Record Item; HasExactPartMatch: Boolean; var MatchReason: Text[250]): Decimal
+    procedure EvaluateCandidateScore(MatDesc: Text; PartNoText: Text; ManufacturerText: Text; Item: Record Item; HasExactPartMatch: Boolean; var MatchReason: Text[250]): Decimal
     var
         DescScore: Decimal;
+        RawDescScore: Decimal;
+        CleanMatDesc: Text;
         ManufacturerScore: Decimal;
         Score: Decimal;
         ItemBrandText: Text;
         NormalizedInputDesc: Text;
         NormalizedItemDesc: Text;
     begin
-        DescScore := GetDiceSimilarity(MatDesc, Item.Description);
+        CleanMatDesc := MatDesc;
+        if PartNoText <> '' then begin
+            if CleanMatDesc.Contains('#' + PartNoText) then
+                CleanMatDesc := CleanMatDesc.Replace('#' + PartNoText, '')
+            else if CleanMatDesc.Contains(PartNoText) then
+                CleanMatDesc := CleanMatDesc.Replace(PartNoText, '');
+            CleanMatDesc := CleanMatDesc.Trim();
+        end;
+        if CleanMatDesc = '' then
+            CleanMatDesc := MatDesc;
+
+        DescScore := GetDiceSimilarity(CleanMatDesc, Item.Description);
+        RawDescScore := GetDiceSimilarity(MatDesc, Item.Description);
+        if RawDescScore > DescScore then
+            DescScore := RawDescScore;
+
         ItemBrandText := GetItemBrandLikeText(Item);
         if (ManufacturerText <> '') and (ItemBrandText <> '') then
             ManufacturerScore := GetDiceSimilarity(ManufacturerText, ItemBrandText)
         else
             ManufacturerScore := 0;
 
-        NormalizedInputDesc := NormalizeComparableText(MatDesc);
+        NormalizedInputDesc := NormalizeComparableText(CleanMatDesc);
         NormalizedItemDesc := NormalizeComparableText(Item.Description);
 
         if (NormalizedInputDesc <> '') and (NormalizedInputDesc = NormalizedItemDesc) then begin
