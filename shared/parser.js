@@ -17,19 +17,20 @@
 
 // Common patterns in oil & gas item descriptions
 const PART_NUMBER_PATTERNS = [
+  /VENDOR\s*MODEL[:\s]+([A-Z0-9\s\-\/\.]+?)(?=\n|\r|$|,|SIGHT|GLASS|BODY|COVER|STUD|TAG|MFR|VENDOR)/i,
+  /MODEL\s*(?:NO|NUMBER|#)?[:\s]+([A-Z0-9\s\-\/\.]+?)(?=\n|\r|$|,|SIGHT|GLASS|BODY|COVER|STUD|TAG|MFR|VENDOR)/i,
   /P\/N[:\s]+([A-Z0-9\-\/\.]+?)(?=(?:MFR(?:[:#]|\s)|MFG(?:[:#]|\s)|BRAND(?:[:#]|\s)|QTY|,|\n|$))/i,
   /PART\s*(?:NO|NUMBER|#)[:\s]+([A-Z0-9\-\/\.]+?)(?=(?:MFR(?:[:#]|\s)|MFG(?:[:#]|\s)|BRAND(?:[:#]|\s)|QTY|,|\n|$))/i,
-  /MODEL\s*(?:NO|NUMBER|#)[:\s]+([A-Z0-9\-\/\.]+?)(?=(?:MFR(?:[:#]|\s)|MFG(?:[:#]|\s)|BRAND(?:[:#]|\s)|QTY|,|\n|$))/i,
-  /MODEL[:\s]+([A-Z0-9][A-Z0-9\-\/\.]*\d+[A-Z0-9\-\/\.]*?)(?=(?:MFR(?:[:#]|\s)|MFG(?:[:#]|\s)|BRAND(?:[:#]|\s)|QTY|,|\n|$))/i,
   /MFR(?:[:#]|\s)+([A-Z0-9\-\/\.\s]*\d+[A-Z0-9\-\/\.\s]*?)(?=(?:MFR(?:[:#]|\s)|MFG(?:[:#]|\s)|MODEL|PART|P\/N|QTY|[, \n]|$))/i,
 ];
 
 const MANUFACTURER_PATTERNS = [
-  /MFGR(?:[:#]|\s)+([A-Z][A-Z0-9\s\/&]+?)(?=(?:MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|,|\n|$))/i,
-  /MFG(?:[:#]|\s)+([A-Z][A-Z0-9\s\/&]+?)(?=(?:MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|,|\n|$))/i,
-  /MFR(?:[:#]|\s)+([A-Z][A-Z0-9\s\/&]+?)(?=(?:MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|,|\n|$))/i,
-  /MANUFACTURER(?:[:#]|\s)+([A-Z][A-Z0-9\s\/&]+?)(?=(?:MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|,|\n|$))/i,
+  /MFR(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|VENDOR|MODEL|P\/N|TAG|GLASS|BODY|COVER)/i,
+  /MFGR(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
+  /MFG(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
+  /MANUFACTURER(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
   /BRAND\s*(?:NAME)?\s*(?:[:#]|\s)+([A-Z0-9\-\/\.\s&]+?)(?=(?:MODEL|P\/N|PART|MFR|MFG|QTY|,|\n|$))/i,
+  /VENDOR\s*:\s*([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MODEL|P\/N|TAG|GLASS|BODY|COVER)/i
 ];
 
 const SIZE_PATTERNS = [
@@ -144,10 +145,25 @@ function parsePdfTableRegex(rawText) {
   
   let currentItem = null;
   
+  const validUomRegex = /^(?:EA|EACH|PCS|PCE|PIECE|PIECES|SET|SETS|ROL|ROLL|ROLLS|CAN|CANS|BOX|BOXES|LOT|BAG|BAGS|CTN|CARTON|DRUM|DRUMS|MTR|METER|METERS|FT|FEET|FOOT|KG|LTR|LITER|LITRE|UNIT|UNITS|PK|PACK|PACKET|PAIL|PL|TUBE|BOT|BT|BOTTLE|KIT|JOB|AU|ASSY|BARREL|CARBOY|CARD|CASE|CS|COIL|CRT|CYLINDER|DAY|HOUR|HUR|IBC|JERRYCAN|KM|KMT|LB|LGT|LGTH|M2|MONTH|MT|NOS|NUM|PAA|PAD|PAK|PALLET|PANEL|PINT|PKT|PLATE|POLE|PR|PRS|PAIR|PAIRS|QUART|REAM|RL|RMS|SACKS|SHEET|SQM|ST|SYSTEM|TANK|TIN|TONNE|TONS|TRAY|TRIP|USER|WARP|YARD|YD)$/i;
+
   lines.forEach(line => {
     const trimmedLine = line.trim();
     if (!trimmedLine) return;
     
+    // Check if line is a quantity & UOM line for the active item (e.g. "40 Ea for grating replacement activity" or "40 Can")
+    const qtyUomLineMatch = trimmedLine.match(/^\s*(\d+)\s+([A-Za-z]+)(?:\s+(.*))?$/);
+    if (currentItem && qtyUomLineMatch && validUomRegex.test(qtyUomLineMatch[2])) {
+      currentItem.qty = qtyUomLineMatch[1];
+      currentItem.uom = qtyUomLineMatch[2].toUpperCase();
+      if (qtyUomLineMatch[3] && !qtyUomLineMatch[3].toLowerCase().includes('posco')) {
+        currentItem.description += " (" + qtyUomLineMatch[3].trim() + ")";
+      }
+      items.push(currentItem);
+      currentItem = null;
+      return;
+    }
+
     const startMatch = trimmedLine.match(startLineRegex);
     
     if (startMatch) {
@@ -161,13 +177,27 @@ function parsePdfTableRegex(rawText) {
       let endMatch = rest ? rest.match(endRegex1) : null;
       if (rest && !endMatch) endMatch = rest.match(endRegex2);
       
+      let qty = "1";
+      let uom = "EA";
+      let matchedText = "";
+      
       if (endMatch) {
-        const matchedText = endMatch[0];
+        const candidateText = endMatch[0];
         const qtyOrUom = endMatch[1].trim();
         const uomOrQty = endMatch[2].trim();
-        const qty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
-        const uom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
+        const candQty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
+        const candUom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
         
+        if (validUomRegex.test(candUom)) {
+          qty = candQty;
+          uom = candUom;
+          matchedText = candidateText;
+        } else {
+          endMatch = null;
+        }
+      }
+
+      if (endMatch) {
         const description = rest.substring(0, rest.lastIndexOf(matchedText)).trim();
         
         items.push({
@@ -194,13 +224,27 @@ function parsePdfTableRegex(rawText) {
         let endMatch = trimmedLine.match(endRegex1);
         if (!endMatch) endMatch = trimmedLine.match(endRegex2);
         
+        let qty = "";
+        let uom = "";
+        let matchedText = "";
+        
         if (endMatch) {
-          const matchedText = endMatch[0];
+          const candidateText = endMatch[0];
           const qtyOrUom = endMatch[1].trim();
           const uomOrQty = endMatch[2].trim();
-          const qty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
-          const uom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
+          const candQty = isNaN(Number(qtyOrUom)) ? uomOrQty : qtyOrUom;
+          const candUom = isNaN(Number(qtyOrUom)) ? qtyOrUom : uomOrQty;
           
+          if (validUomRegex.test(candUom)) {
+            qty = candQty;
+            uom = candUom;
+            matchedText = candidateText;
+          } else {
+            endMatch = null;
+          }
+        }
+
+        if (endMatch) {
           const extraDesc = trimmedLine.substring(0, trimmedLine.lastIndexOf(matchedText)).trim();
           
           currentItem.description = (currentItem.description + " " + extraDesc).trim();

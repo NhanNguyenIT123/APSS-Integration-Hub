@@ -270,9 +270,102 @@ OUTPUT (JSON only):
   return null;
 }
 
+/**
+ * Classify whether document text extracted from an attachment is a commercial RFQ item list to be quoted,
+ * or a technical specification document / catalogue / drawing / manual.
+ */
+async function classifyAttachmentContent(docText, docName = '') {
+  if (!docText || docText.trim().length < 30) return { isItemList: false, type: 'EMPTY' };
+  
+  const lowerText = docText.toLowerCase();
+  const lowerName = docName.toLowerCase();
+
+  // Primary Check: Main RFQ / BOQ / Quotation documents are ALWAYS item lists!
+  if (lowerName.includes('rfq') || lowerName.includes('boq') || lowerName.includes('quotation') || lowerName.includes('quote_form') || lowerName.includes('item_list') || lowerName.includes('material_list') || lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
+    return { isItemList: true, type: 'RFQ_DOCUMENT' };
+  }
+
+  // Fast Heuristic check for technical manuals / painting specs / drawings (0ms latency)
+  const isTechDoc = lowerName.includes('catalogue') || lowerName.includes('catalog') || lowerName.includes('drawing') ||
+                    lowerName.includes('painting') || lowerName.includes('manual') || lowerName.includes('instruction') ||
+                    lowerName.includes('datasheet') || lowerName.includes('coating_system') ||
+                    lowerText.includes('installation, operation and maintenance') || lowerText.includes('surface preparation') ||
+                    lowerText.includes('minimum number of coats') || lowerText.includes('torque pattern') ||
+                    lowerText.includes('general arrangement drawing');
+
+  if (isTechDoc) {
+    return { isItemList: false, type: 'TECHNICAL_REF' };
+  }
+
+  // Fast Heuristic check for structured Excel or tabular data
+  if (lowerText.includes('--- sheet:') || (lowerText.includes('item') && lowerText.includes('qty') && (lowerText.includes('price') || lowerText.includes('uom')))) {
+    return { isItemList: true, type: 'STRUCTURED_TABLE' };
+  }
+
+  // AI Classification for ambiguous documents
+  const prompt = `Analyze the following text extracted from a procurement attachment (Filename/Title: "${docName}").
+
+Text snippet:
+"${docText.substring(0, 1200)}"
+
+Is this document a COMMERCIAL ITEM LIST / QUOTATION SCHEDULE intended for suppliers to bid/quote prices on specific items?
+Or is it a TECHNICAL SPECIFICATION, CATALOGUE, USER MANUAL, PAINTING GUIDE, or ENGINEERING DRAWING?
+
+Reply in JSON format:
+{
+  "is_item_list": true or false,
+  "reason": "<brief explanation>"
+}`;
+
+  try {
+    const res = await aiGenerateText(prompt, "You are a procurement document classifier. Output JSON only.");
+    const jsonMatch = res.text.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return { isItemList: !!parsed.is_item_list, type: parsed.is_item_list ? 'ITEM_LIST' : 'TECHNICAL_DOC' };
+    }
+  } catch (err) {
+    console.warn('⚠️ AI document classification failed, using fallback:', err.message);
+  }
+
+  const hasItemStructure = lowerText.includes('qty') && (lowerText.includes('uom') || lowerText.includes('unit'));
+  return { isItemList: hasItemStructure, type: hasItemStructure ? 'ITEM_LIST' : 'TECHNICAL_DOC' };
+}
+
+/**
+ * Classify whether an HTML table on the web page contains actual commercial material items,
+ * or is just a generic summary / terms placeholder (e.g. "General article", "Incoterms DDP").
+ */
+function isRealMaterialItemTable(items) {
+  if (!items || items.length === 0) return false;
+  
+  const genericWords = ['general article', 'incoterm', 'refer to attach', 'see attach', 'as per attach', 'delivery term', 'payment term'];
+  
+  const hasOnlyGeneric = items.every(item => {
+    const desc = (item.description || '').toLowerCase();
+    return genericWords.some(gw => desc.includes(gw));
+  });
+
+  if (hasOnlyGeneric) return false;
+
+  const materialKeywords = ['glass', 'valve', 'pump', 'pipe', 'gasket', 'bearing', 'flange', 'belt', 'regulator', 'bolt', 'nut', 'o-ring', 'seal', 'filter', 'cable', 'motor', 'gauge', 'sensor', 'fitting', 'spare', 'hose', 'coupling', 'elbow', 'tee', 'transformer', 'switch', 'breaker'];
+  
+  for (const item of items) {
+    const desc = (item.description || '').toLowerCase();
+    const pn = (item.part_number || '').toLowerCase();
+    if (pn.length >= 3 && pn !== 'n/a') return true;
+    if (materialKeywords.some(kw => desc.includes(kw))) return true;
+  }
+
+  return true;
+}
+
 module.exports = {
   aiParseItem,
   aiMatchItem,
   checkAICapability,
-  aiGenerateText
+  aiGenerateText,
+  classifyAttachmentContent,
+  isRealMaterialItemTable
 };
+

@@ -625,6 +625,7 @@ const server = http.createServer(async (req, res) => {
           if (!val) return '';
           const clean = val.trim();
           if (INVALID_PART_WORDS.has(clean.toLowerCase())) return '';
+          if (/^ø?\d+(?:\.\d+)?\s*(?:mm|cm|m|inch|in|oz|ml|kg|g|lb|psi|bar|v|w|hz|a|#)?$/i.test(clean) || clean.includes('ø')) return '';
           return clean;
         };
 
@@ -700,11 +701,12 @@ const server = http.createServer(async (req, res) => {
           };
           normalizedUom = uomMap[uomUpper] || uomUpper;
 
-          // 3. Remove bc_item_no assignment (Let BC matching algorithm do its job!)
+          let pn = sanitizePartNo(item.part_number) || sanitizePartNo(rfqParsed.part_number) || '';
+
           return {
             ...item,
             uom: normalizedUom,
-            part_number: sanitizePartNo(item.part_number) || sanitizePartNo(rfqParsed.part_number) || '',
+            part_number: pn,
             manufacturer: item.manufacturer || rfqParsed.manufacturer || '',
             bc_item_no: ''
           };

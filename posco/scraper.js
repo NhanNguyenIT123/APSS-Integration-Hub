@@ -1171,9 +1171,22 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
                 }
               }
 
-              // Smart Attachment Filtering: Only include the main RFQ document if it exists, to avoid confusing the AI with massive reference manuals.
-              const mainDocs = results.filter(res => res && res.name && res.name.includes(bid.rfq_no));
-              const docsToProcess = mainDocs.length > 0 ? mainDocs : results;
+              // Content-Based & AI Attachment Classification:
+              // Classifies document text using AI & Structural content analysis to determine if it is a commercial item list or a technical manual/catalog/drawing.
+              const aiClient = require('../shared/ai-client.js');
+              const validItemDocs = [];
+              for (const res of results) {
+                if (res && res.text) {
+                  const classification = await aiClient.classifyAttachmentContent(res.text, res.name);
+                  if (classification.isItemList) {
+                    validItemDocs.push(res);
+                  } else {
+                    console.log(`      [Smart AI Filter] Classified "${res.name}" as ${classification.type} (Ignored for item extraction).`);
+                  }
+                }
+              }
+
+              const docsToProcess = validItemDocs;
 
               docsToProcess.forEach(res => {
                 if (res && res.text && res.text.trim().length > 0) {
@@ -1181,8 +1194,8 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
                 }
               });
               
-              if (mainDocs.length > 0 && mainDocs.length < results.length) {
-                 console.log(`      [Smart Filter] Ignored ${results.length - mainDocs.length} reference attachments to prevent AI confusion.`);
+              if (results.length > docsToProcess.length) {
+                 console.log(`      [Smart AI Filter] Ignored ${results.length - docsToProcess.length} technical reference attachment(s) (catalogs/specs/drawings).`);
               }
 
               bid.attachments = attachmentsList;
@@ -1274,18 +1287,15 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               htmlTableItems = evaluatedHtmlItems;
             }
             
-            // Prioritization: Prefer HTML table items when available
-            // Only trust AI if it finds AT LEAST 2 more items than the HTML table (prevents hallucinating 2 items out of 1)
-            const hasAttachments = attachmentsList && attachmentsList.length > 0;
-            const aiSignificantlyLarger = items.length >= htmlTableItems.length + 2;
-            
-            if (htmlTableItems.length > 0 && (!hasAttachments || items.length === 0 || !aiSignificantlyLarger)) {
-              if (items.length > 0) {
-                console.log(`      💡 HTML table contains ${htmlTableItems.length} items vs AI's ${items.length}. Prioritizing HTML table to avoid AI splitting.`);
-              } else {
-                console.log(`      Found ${htmlTableItems.length} material item(s) from HTML table.`);
-              }
+            // Smart Prioritization using AI & Semantic Content Classification:
+            const aiClient = require('../shared/ai-client.js');
+            const hasRealHtmlItems = aiClient.isRealMaterialItemTable(htmlTableItems);
+
+            if (hasRealHtmlItems) {
+              console.log(`      💡 HTML table contains ${htmlTableItems.length} real material item(s). Prioritizing HTML table.`);
               items = htmlTableItems;
+            } else if (items.length > 0) {
+              console.log(`      💡 HTML table is placeholder/generic terms or missing. Prioritizing ${items.length} items parsed from RFQ item attachment.`);
             }
           } catch (htmlErr) {
             console.warn(`      ⚠️ Failed to parse HTML table: ${htmlErr.message}`);
@@ -1315,7 +1325,8 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
             }
           }
 
-          // Clean up common literal placeholders from AI extraction
+          // Clean up common literal placeholders and extract manufacturer/part_number via deterministic regex if blank
+          const { parseItemDescription } = require('../shared/parser');
           items = items.map(item => {
             const cleanField = (val) => {
               if (!val) return '';
@@ -1325,10 +1336,19 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               }
               return String(val).trim();
             };
+            let extractedPn = cleanField(item.part_number);
+            let extractedMfr = cleanField(item.manufacturer);
+
+            if ((!extractedPn || !extractedMfr) && item.description) {
+              const parsed = parseItemDescription(item.description);
+              if (!extractedPn && parsed.part_number) extractedPn = parsed.part_number;
+              if (!extractedMfr && parsed.manufacturer) extractedMfr = parsed.manufacturer;
+            }
+
             return {
               ...item,
-              part_number: cleanField(item.part_number),
-              manufacturer: cleanField(item.manufacturer)
+              part_number: extractedPn,
+              manufacturer: extractedMfr
             };
           });
 
