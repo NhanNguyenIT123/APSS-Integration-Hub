@@ -644,30 +644,14 @@ codeunit 70303 "APSS Middleware Sync"
                             FldRef.Value := CopyStr(FullDesc, 1, FldRef.Length);
                     end;
 
-                    // Check if it's currently blank/empty
+                    // Specific fallbacks if no existing items have values
                     if Format(FldRef.Value) = '' then begin
-                        // Try to find a value from existing items
-                        ExistingItem.Reset();
-                        if ExistingItem.FindSet() then begin
-                            repeat
-                                ExistingItemRecRef.GetTable(ExistingItem);
-                                ExistingFldRef := ExistingItemRecRef.Field(FldNo);
-                                if Format(ExistingFldRef.Value) <> '' then begin
-                                    FldRef.Validate(ExistingFldRef.Value);
-                                    break;
-                                end;
-                            until ExistingItem.Next() = 0;
-                        end;
-                        
-                        // Specific fallbacks if no existing items have values
-                        if Format(FldRef.Value) = '' then begin
-                            if FieldNameLower = 'apss brand' then
-                                FldRef.Value := 'APSS';
-                            if FieldNameLower = 'item category code' then begin
-                                ItemCategory.Reset();
-                                if ItemCategory.FindFirst() then
-                                    FldRef.Validate(ItemCategory.Code);
-                            end;
+                        if FieldNameLower = 'apss brand' then
+                            FldRef.Value := 'APSS';
+                        if FieldNameLower = 'item category code' then begin
+                            ItemCategory.Reset();
+                            if ItemCategory.FindFirst() then
+                                FldRef.Validate(ItemCategory.Code);
                         end;
                     end;
                 end else if FldRef.Type = FieldType::Boolean then begin
