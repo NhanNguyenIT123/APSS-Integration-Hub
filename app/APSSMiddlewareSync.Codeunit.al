@@ -3261,6 +3261,28 @@ codeunit 70303 "APSS Middleware Sync"
         exit(BestScore >= 0.40);
     end;
 
+    procedure CheckItemHasExactPartMatch(Item: Record Item; PartNoText: Text): Boolean
+    var
+        ItemRef: Record "Item Reference";
+    begin
+        if PartNoText = '' then
+            exit(false);
+
+        if (Item.GTIN <> '') and (Item.GTIN = PartNoText) then
+            exit(true);
+
+        if (Item."No." <> '') and (Item."No." = PartNoText) then
+            exit(true);
+
+        ItemRef.Reset();
+        ItemRef.SetRange("Item No.", Item."No.");
+        ItemRef.SetRange("Reference No.", PartNoText);
+        if not ItemRef.IsEmpty() then
+            exit(true);
+
+        exit(false);
+    end;
+
     procedure EvaluateCandidateScore(MatDesc: Text; PartNoText: Text; ManufacturerText: Text; Item: Record Item; HasExactPartMatch: Boolean; var MatchReason: Text[250]): Decimal
     var
         DescScore: Decimal;

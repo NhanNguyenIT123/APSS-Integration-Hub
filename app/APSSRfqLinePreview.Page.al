@@ -83,13 +83,15 @@ page 70303 "APSS RFQ Line Preview"
                     var
                         Item: Record Item;
                         SyncCU: Codeunit "APSS Middleware Sync";
+                        HasPartMatch: Boolean;
                         NewScore: Decimal;
                         CandidateReason: Text[250];
                     begin
                         if Rec."Matched Item No." <> '' then begin
                             Rec."Match Status" := Rec."Match Status"::"Auto-Link";
                             if Item.Get(Rec."Matched Item No.") then begin
-                                NewScore := SyncCU.EvaluateCandidateScore(Rec."Material Description", Rec."Part Number", Rec.Manufacturer, Item, true, CandidateReason);
+                                HasPartMatch := SyncCU.CheckItemHasExactPartMatch(Item, Rec."Part Number");
+                                NewScore := SyncCU.EvaluateCandidateScore(Rec."Material Description", Rec."Part Number", Rec.Manufacturer, Item, HasPartMatch, CandidateReason);
                                 Rec."Match Score" := Round(NewScore * 100, 0.01);
                                 Rec."Match Reason" := CopyStr('Manually selected. ' + CandidateReason, 1, MaxStrLen(Rec."Match Reason"));
                             end else begin
