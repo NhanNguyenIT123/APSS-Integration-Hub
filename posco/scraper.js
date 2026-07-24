@@ -989,6 +989,24 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               .filter(item => item.isDoc);
           });
 
+          // Extract inline notice body images (e.g. Nameplate photo, technical photos embedded in notice)
+          const inlineImages = await page.evaluate(() => {
+            const imgs = Array.from(document.querySelectorAll('img'));
+            return imgs
+              .map(img => {
+                const src = img.getAttribute('src') || img.src || '';
+                const alt = img.getAttribute('alt') || img.getAttribute('title') || 'Notice_Photo.jpg';
+                return { src, alt };
+              })
+              .filter(item => {
+                if (!item.src) return false;
+                const lower = item.src.toLowerCase();
+                return !lower.includes('icon') && !lower.includes('btn') && !lower.includes('logo') && 
+                       !lower.includes('blank') && !lower.includes('common') && !lower.includes('header') &&
+                       !lower.includes('footer') && !lower.includes('menu');
+              });
+          });
+
           // Deduplicate attachments to prevent double downloads (e.g. text link + download icon next to it)
           const uniqueAttachLinks = [];
           const seenHrefs = new Set();
@@ -1197,9 +1215,47 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               if (results.length > docsToProcess.length) {
                  console.log(`      [Smart AI Filter] Ignored ${results.length - docsToProcess.length} technical reference attachment(s) (catalogs/specs/drawings).`);
               }
-
-              bid.attachments = attachmentsList;
           }
+
+          // Download inline notice images if present (e.g. Nameplate photos, embedded technical photos)
+          if (inlineImages && inlineImages.length > 0) {
+            console.log(`      Found ${inlineImages.length} inline notice image(s). Downloading...`);
+            for (let imgIdx = 0; imgIdx < inlineImages.length; imgIdx++) {
+              const imgInfo = inlineImages[imgIdx];
+              try {
+                const imgData = await page.evaluate(async (src) => {
+                  const resp = await fetch(src);
+                  const blob = await resp.blob();
+                  return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                  });
+                }, imgInfo.src).catch(() => null);
+
+                if (imgData && imgData.includes('base64,')) {
+                  const base64Data = imgData.split('base64,')[1];
+                  const extMatch = imgInfo.src.match(/\.(jpg|jpeg|png|gif|webp)/i);
+                  const ext = extMatch ? extMatch[1] : 'jpg';
+                  const imgFileName = `Notice_Photo_${imgIdx + 1}.${ext}`;
+                  const imgSavedPath = path.join(rfqDocsDir, imgFileName);
+                  fs.writeFileSync(imgSavedPath, Buffer.from(base64Data, 'base64'));
+                  console.log(`      📸 Downloaded inline notice photo: ${imgFileName}`);
+
+                  const serverUrl = `/api/attachments/rfq_${bid.rfq_no}/${encodeURIComponent(imgFileName)}`;
+                  attachmentsList.push({
+                    file_name: imgFileName,
+                    file_path: imgSavedPath,
+                    url: serverUrl
+                  });
+                }
+              } catch (err) {
+                console.warn(`      ⚠️ Failed to download inline image ${imgIdx + 1}: ${err.message}`);
+              }
+            }
+          }
+
+          bid.attachments = attachmentsList;
 
           // Send combined text (Notice text + PDF text) to Ollama
           if (combinedRawText && combinedRawText.trim().length > 50) {
@@ -1331,7 +1387,10 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
             const cleanField = (val) => {
               if (!val) return '';
               const cleanVal = String(val).trim().toLowerCase();
-              if (['must', 'required', 'n/a', 'none', 'null', 'yes', 'no', 'tbd', 'to be decided', 'to be advised', 'tba'].includes(cleanVal)) {
+              if (['must', 'required', 'n/a', 'none', 'null', 'yes', 'no', 'tbd', 'to be decided', 'to be advised', 'tba', 'item description', 'description'].includes(cleanVal)) {
+                return '';
+              }
+              if (cleanVal.includes('origin') || cleanVal.includes('acceptable') || cleanVal.includes('non-china') || cleanVal.includes('preference') || cleanVal.includes('certificate')) {
                 return '';
               }
               return String(val).trim();

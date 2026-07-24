@@ -29,7 +29,7 @@ const MANUFACTURER_PATTERNS = [
   /MFGR(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
   /MFG(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
   /MANUFACTURER(?:[:#]|\s)+([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MFR|MFG|MODEL|P\/N|PART\s*NO|QTY|\n|$)/i,
-  /BRAND\s*(?:NAME)?\s*(?:[:#]|\s)+([A-Z0-9\-\/\.\s&]+?)(?=(?:MODEL|P\/N|PART|MFR|MFG|QTY|,|\n|$))/i,
+  /BRAND\s*(?:NAME)?\s*[:#]\s*([A-Z0-9\-\/\.\s&]+?)(?=(?:MODEL|P\/N|PART|MFR|MFG|QTY|,|\n|$))/i,
   /VENDOR\s*:\s*([A-Z0-9\s\/&]+?)(?=\n|\r|$|,|MODEL|P\/N|TAG|GLASS|BODY|COVER)/i
 ];
 
