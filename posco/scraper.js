@@ -989,39 +989,35 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               .filter(item => item.isDoc);
           });
 
-          // Extract inline notice body images across ALL page frames and iframes (e.g. Nameplate photo under INLINEATTACH)
-          const inlineImages = await page.evaluate(() => {
-            const allImgs = [];
-            const extractFromDoc = (doc) => {
-              try {
-                const imgs = Array.from(doc.querySelectorAll('img'));
-                imgs.forEach(img => {
+          // Extract inline notice body images across ALL page frames using Playwright native frame API
+          const inlineImages = [];
+          const seenSrcs = new Set();
+          for (const frame of page.frames()) {
+            try {
+              const frameImgs = await frame.evaluate(() => {
+                const results = [];
+                const imgEls = Array.from(document.querySelectorAll('img'));
+                for (const img of imgEls) {
                   const src = img.src || img.getAttribute('src') || '';
                   const alt = img.getAttribute('alt') || img.getAttribute('title') || 'Notice_Photo.jpg';
-                  if (src) allImgs.push({ src, alt });
-                });
-              } catch (e) {}
-            };
-
-            extractFromDoc(document);
-
-            const iframes = Array.from(document.querySelectorAll('iframe, frame'));
-            iframes.forEach(iframe => {
-              try {
-                if (iframe.contentDocument) {
-                  extractFromDoc(iframe.contentDocument);
+                  if (src) results.push({ src, alt });
                 }
-              } catch (e) {}
-            });
+                return results;
+              });
 
-            return allImgs.filter(item => {
-              if (!item.src) return false;
-              const lower = item.src.toLowerCase();
-              return !lower.includes('icon') && !lower.includes('btn') && !lower.includes('logo') && 
-                     !lower.includes('blank') && !lower.includes('common') && !lower.includes('header') &&
-                     !lower.includes('footer') && !lower.includes('menu');
-            });
-          });
+              for (const item of frameImgs || []) {
+                if (!item.src) continue;
+                const lower = item.src.toLowerCase();
+                const isNavIcon = lower.includes('icon') || lower.includes('btn') || lower.includes('logo') || 
+                                  lower.includes('blank') || lower.includes('common') || lower.includes('header') ||
+                                  lower.includes('footer') || lower.includes('menu');
+                if (!isNavIcon && !seenSrcs.has(item.src)) {
+                  seenSrcs.add(item.src);
+                  inlineImages.push(item);
+                }
+              }
+            } catch (e) {}
+          }
 
           // Deduplicate attachments to prevent double downloads (e.g. text link + download icon next to it)
           const uniqueAttachLinks = [];
@@ -1239,24 +1235,37 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
             for (let imgIdx = 0; imgIdx < inlineImages.length; imgIdx++) {
               const imgInfo = inlineImages[imgIdx];
               try {
-                const imgData = await page.evaluate(async (src) => {
-                  const resp = await fetch(src);
-                  const blob = await resp.blob();
-                  return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.readAsDataURL(blob);
-                  });
-                }, imgInfo.src).catch(() => null);
+                let imageBuffer = null;
+                try {
+                  const resp = await page.request.get(imgInfo.src);
+                  if (resp.ok()) {
+                    imageBuffer = await resp.body();
+                  }
+                } catch (e) {}
 
-                if (imgData && imgData.includes('base64,')) {
-                  const base64Data = imgData.split('base64,')[1];
+                if (!imageBuffer) {
+                  const imgData = await page.evaluate(async (src) => {
+                    const resp = await fetch(src, { credentials: 'include' });
+                    const blob = await resp.blob();
+                    return new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(reader.result);
+                      reader.readAsDataURL(blob);
+                    });
+                  }, imgInfo.src).catch(() => null);
+
+                  if (imgData && imgData.includes('base64,')) {
+                    imageBuffer = Buffer.from(imgData.split('base64,')[1], 'base64');
+                  }
+                }
+
+                if (imageBuffer && imageBuffer.length > 0) {
                   const extMatch = imgInfo.src.match(/\.(jpg|jpeg|png|gif|webp)/i);
                   const ext = extMatch ? extMatch[1] : 'jpg';
                   const imgFileName = `Notice_Photo_${imgIdx + 1}.${ext}`;
                   const imgSavedPath = path.join(rfqDocsDir, imgFileName);
-                  fs.writeFileSync(imgSavedPath, Buffer.from(base64Data, 'base64'));
-                  console.log(`      📸 Downloaded inline notice photo: ${imgFileName}`);
+                  fs.writeFileSync(imgSavedPath, imageBuffer);
+                  console.log(`      📸 Downloaded inline notice photo (${imageBuffer.length} bytes): ${imgFileName}`);
 
                   const serverUrl = `/api/attachments/rfq_${bid.rfq_no}/${encodeURIComponent(imgFileName)}`;
                   attachmentsList.push({
