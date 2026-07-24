@@ -989,22 +989,38 @@ async function runScraper(forceLogin = false, forceMock = false, onProgress = nu
               .filter(item => item.isDoc);
           });
 
-          // Extract inline notice body images (e.g. Nameplate photo, technical photos embedded in notice)
+          // Extract inline notice body images across ALL page frames and iframes (e.g. Nameplate photo under INLINEATTACH)
           const inlineImages = await page.evaluate(() => {
-            const imgs = Array.from(document.querySelectorAll('img'));
-            return imgs
-              .map(img => {
-                const src = img.getAttribute('src') || img.src || '';
-                const alt = img.getAttribute('alt') || img.getAttribute('title') || 'Notice_Photo.jpg';
-                return { src, alt };
-              })
-              .filter(item => {
-                if (!item.src) return false;
-                const lower = item.src.toLowerCase();
-                return !lower.includes('icon') && !lower.includes('btn') && !lower.includes('logo') && 
-                       !lower.includes('blank') && !lower.includes('common') && !lower.includes('header') &&
-                       !lower.includes('footer') && !lower.includes('menu');
-              });
+            const allImgs = [];
+            const extractFromDoc = (doc) => {
+              try {
+                const imgs = Array.from(doc.querySelectorAll('img'));
+                imgs.forEach(img => {
+                  const src = img.src || img.getAttribute('src') || '';
+                  const alt = img.getAttribute('alt') || img.getAttribute('title') || 'Notice_Photo.jpg';
+                  if (src) allImgs.push({ src, alt });
+                });
+              } catch (e) {}
+            };
+
+            extractFromDoc(document);
+
+            const iframes = Array.from(document.querySelectorAll('iframe, frame'));
+            iframes.forEach(iframe => {
+              try {
+                if (iframe.contentDocument) {
+                  extractFromDoc(iframe.contentDocument);
+                }
+              } catch (e) {}
+            });
+
+            return allImgs.filter(item => {
+              if (!item.src) return false;
+              const lower = item.src.toLowerCase();
+              return !lower.includes('icon') && !lower.includes('btn') && !lower.includes('logo') && 
+                     !lower.includes('blank') && !lower.includes('common') && !lower.includes('header') &&
+                     !lower.includes('footer') && !lower.includes('menu');
+            });
           });
 
           // Deduplicate attachments to prevent double downloads (e.g. text link + download icon next to it)
